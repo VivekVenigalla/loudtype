@@ -11,12 +11,13 @@ npm install
 npm run setup                    # one-time: GoEmotions model + Roboto Flex into models/ and fonts/
 cp config.example.js config.js   # add ELEVENLABS_API_KEY (config.js is gitignored and already exists locally)
 npm start                        # http://localhost:7777/control/ and /overlay/
+npm test                         # node:test, no network; starts its own server on a free port
 ```
 
 - If `npm start` says port 7777 is in use, a server is already running: `lsof -ti tcp:7777 | xargs kill`.
 - The user usually runs the server in the Terminal panel (tab 0). Don't start a second one; reload the pages instead. Server code changes need a restart; `control/`, `overlay/` changes only need a page reload.
 - **The folder name `HacklantaFinal?` contains a `?`.** It breaks shell globs and `import()` of plain paths in Node. Always quote paths and use `pathToFileURL` in scripts. Recommend renaming to `Loudtype` (outside a Claude session running in it).
-- Not a git repo yet. Before `git init`, add `models/` to `.gitignore` (the ONNX model is 125 MB).
+- Git repo since the codebase audit (`main` = baseline, audit work on branch `audit`). `models/` and `config.js` are gitignored.
 
 ## Architecture
 
@@ -31,7 +32,7 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
   emotion.js + emotion-core.js: line emotion
 ```
 
-- **server.js** (Node, only dep `ws`): serves `control/ overlay/ fonts/ models/ replay/` (whitelisted top-level dirs only; `config.js` and `server.js` are never served), maps `/vendor/transformers/` → `@huggingface/transformers/dist` and `/vendor/ort/` → `onnxruntime-web/dist`. `GET /token` mints a single-use Scribe token (API key never reaches the browser). `GET /config` returns config minus the key. `/relay` rebroadcasts control → overlay; stores nothing.
+- **server.js** (Node, only dep `ws`): serves `control/ overlay/ fonts/ models/ replay/` (whitelisted top-level dirs only, checked in `server-paths.js` *after* resolving `..`, so `config.js` and `server.js` are never served), maps `/vendor/transformers/` → `@huggingface/transformers/dist` and `/vendor/ort/` → `onnxruntime-web/dist`. `GET /token` mints a single-use Scribe token (API key never reaches the browser). `GET /config` returns config minus the key. `/relay` rebroadcasts control → overlay; stores nothing.
 - **control/**
   - `app.js`: session orchestration, partial/commit handling, emotion, replay, export, Director's View, mood hotkeys, judge prompt cards. `window.loudtype.session()` exposes the live session for debugging.
   - `audio.js` + `pcm-worklet.js`: mic with AGC/noise suppression **off** (they'd flatten loudness). All measurement happens **in the worklet** with exact `currentTime` stamps; main-thread timing was ~0.5 s off while the model loaded.
@@ -85,5 +86,5 @@ Known issues:
 6. Shout-line width: consider chunking by measured width instead of word count so shouted lines never drop words.
 7. Demo polish: record a real `replay/demo.json` (Stop → Save last session), ideally the Atlanta freestyle clip from the spec, and collect the three customer-discovery quotes (streamer, Deaf/HoH viewer, motion designer).
 8. Visual design pass on the control panel and overlay (barebones so far by request).
-9. Housekeeping: rename the folder, `.gitignore` `models/`, `git init`.
+9. Housekeeping: rename the folder (git init and ignoring `models/` are done).
 10. Stretch: two-speaker mode (each speaker on their own side of the screen).

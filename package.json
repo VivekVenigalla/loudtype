@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",

@@ -2,11 +2,13 @@
 // localhost-only caption relay. Stores nothing.
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, extname, join, normalize, sep } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { makeResolver } from './server-paths.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
+const resolvePath = makeResolver(ROOT);
 
 let CONFIG;
 try {
@@ -15,33 +17,14 @@ try {
   console.error('Missing config.js. Run: cp config.example.js config.js  and add your ElevenLabs key.');
   process.exit(1);
 }
-const PORT = CONFIG.RELAY_PORT || 7777;
-
-// URL prefix → folder on disk
-const MOUNTS = [
-  ['/vendor/transformers/', join(ROOT, 'node_modules/@huggingface/transformers/dist')],
-  ['/vendor/ort/', join(ROOT, 'node_modules/onnxruntime-web/dist')],
-  ['/', ROOT],
-];
-const PUBLIC_TOP = new Set(['control', 'overlay', 'fonts', 'models', 'replay']);
+// LOUDTYPE_PORT lets the tests run a second copy next to the one you stream with.
+const PORT = Number(process.env.LOUDTYPE_PORT) || CONFIG.RELAY_PORT || 7777;
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm',
   '.onnx': 'application/octet-stream', '.woff2': 'font/woff2',
 };
-
-function resolvePath(urlPath) {
-  for (const [prefix, dir] of MOUNTS) {
-    if (!urlPath.startsWith(prefix)) continue;
-    const rel = decodeURIComponent(urlPath.slice(prefix.length));
-    if (prefix === '/' && !PUBLIC_TOP.has(rel.split('/')[0])) return null; // never serve config.js etc.
-    const full = normalize(join(dir, rel));
-    if (full !== dir && !full.startsWith(dir + sep)) return null;
-    return full;
-  }
-  return null;
-}
 
 // The browser only ever sees a short-lived single-use token, never the API key.
 async function mintToken(res) {
@@ -64,7 +47,7 @@ function send(res, code, body, type = 'text/plain') {
   res.end(body);
 }
 
-const server = http.createServer(async (req, res) => {
+async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === '/') return res.writeHead(302, { Location: '/control/' }).end();
   if (url.pathname === '/token') return mintToken(res);
@@ -80,6 +63,15 @@ const server = http.createServer(async (req, res) => {
   } catch {
     send(res, 404, 'Not found');
   }
+}
+
+// A malformed request (bad URL or Host header) must never take the server down mid-stream.
+const server = http.createServer((req, res) => {
+  handle(req, res).catch((err) => {
+    console.error(`Bad request ${JSON.stringify(req.url)}: ${err.message}`);
+    if (res.headersSent) res.destroy();
+    else send(res, 400, 'Bad request');
+  });
 });
 
 // Relay: whatever the control panel sends goes to every other client.
