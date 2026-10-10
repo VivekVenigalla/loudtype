@@ -7,7 +7,7 @@ export const CONFIG = {
   VAD_SILENCE_SECS: 0.6,         // pause that ends a caption line; lower = faster, shorter lines
   EMOTION_MIN_CONFIDENCE: 0.7,   // below this, lines stay white
   COLORBLIND_PALETTE: false,
-  STREAM_SAFE: true,
+  STREAM_SAFE: false,            // not implemented yet: swear words are NOT filtered
   SHOUT_POP: true,
   DEFAULT_PACK: 'studio',
   RELAY_PORT: 7777,
