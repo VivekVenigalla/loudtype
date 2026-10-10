@@ -134,9 +134,9 @@ export class Transcript {
   }
 
   /**
-   * Voiceprint of the line so far (one check at a time, ~20 ms). Until the
-   * first answer the line isn't shown, so a stranger's words never flash up;
-   * 'other' takes it off screen. The committed line is checked again in full.
+   * Voiceprint of the line so far (one check at a time, ~20 ms). Live words
+   * show at once (waiting for the check made the speaker's own words late);
+   * 'other' takes them off screen. The committed line is checked again in full.
    */
   checkVoice(cur, now) {
     if (!this.identify || !this.prosody.focus || cur.checking) return;
@@ -157,7 +157,6 @@ export class Transcript {
   emitPartial(cur) {
     if (this.prosody.suppressCaptions || (this.prosody.requireTimed && this.prosody.focus)) return;
     const focus = this.prosody.focus;
-    if (focus && this.identify && cur.voice === undefined) return; // first voiceprint check still running
     const stranger = focus && cur.voice?.verdict === 'other';
     const words = splitWords(cur.text)
       .map((word, i) => ({ word, ...(cur.styles[i] || plainWord(word)) }))

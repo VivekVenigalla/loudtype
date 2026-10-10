@@ -6,7 +6,7 @@ import { Speakers } from './speakers.js';
 import { Transcript } from './transcript.js';
 import { classify, warmUp } from './emotion.js';
 import { embed, loadVoiceModel } from './voiceprint.js';
-import { AudioRing, Voiceprints, VOICE } from './voiceprint-core.js';
+import { AudioRing, Voiceprints, VOICE, STRICTNESS } from './voiceprint-core.js';
 import { Relay } from './relay.js';
 import { download, toSrt, toAfterEffects } from './export.js';
 
@@ -20,6 +20,7 @@ const ui = {
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), focus: $('focus'),
   speakerCount: $('speaker-count'), speakerNext: $('speaker-next'), speakerList: $('speaker-list'),
+  strictness: $('strictness'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -59,6 +60,9 @@ async function start() {
   s.prosody.focus = ui.focus.checked;
   // Voiceprints: only the calibrated voices are captioned. Audio stays in memory (last 60 s).
   s.voiceprints = new Voiceprints({ embed, ring: new AudioRing() });
+  s.voiceprints.strictness = ui.strictness.value;
+  s.prosody.sensitivity = Number(ui.sensitivity.value);
+  s.voiceHistory = []; // last lines' voiceprint verdicts, for the mic report
   s.transcript = new Transcript({
     prosody: s.prosody,
     // A line from an older session can still be classifying after Start; it
@@ -69,7 +73,11 @@ async function start() {
     identify: (start, end) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end) : null),
     onStyled: (voice) => {
       if (voiceReady) s.voiceprints.refresh(s.prosody); // learn the voiceprint from the calibration words
-      if (voice) s.voice = voice;
+      if (voice) {
+        s.voice = voice;
+        s.voiceHistory.push(voice);
+        if (s.voiceHistory.length > 20) s.voiceHistory.shift();
+      }
       sendCalib(s);
       showWordInfo(s.prosody);
       showVoice(s);
@@ -267,9 +275,14 @@ ui.ae.onclick = () => { if (requireLines()) download('loudtype.jsx', toAfterEffe
 // ---------- Director's View (control panel only, never on stream) ----------
 const DV_RANGE = 20; // live bar shows normal ± 20 dB
 const dvPos = (d) => `${Math.max(0, Math.min(100, 50 + (d / DV_RANGE) * 50))}%`;
-ui.dvTicks.innerHTML = Object.entries(THRESHOLDS)
-  .map(([name, d]) => `<span class="tick" style="left:${dvPos(d)}">${name}<br>${d > 0 ? '+' : ''}${d} dB</span>`).join('')
-  + `<span class="tick mid" style="left:50%">normal</span>`;
+function showTicks() {
+  const k = Number(ui.sensitivity.value);
+  ui.dvTicks.innerHTML = Object.entries(THRESHOLDS).map(([name, d0]) => {
+    const d = Math.round((d0 / k) * 10) / 10;
+    return `<span class="tick" style="left:${dvPos(d)}">${name}<br>${d > 0 ? '+' : ''}${d} dB</span>`;
+  }).join('') + `<span class="tick mid" style="left:50%">normal</span>`;
+}
+showTicks();
 
 function showLive(p) {
   const d = p.liveDelta();
@@ -290,6 +303,10 @@ function showLive(p) {
     + (snr != null && snr < LOW_SNR_DB ? ` · voice only ${snr.toFixed(0)} dB over the room (built-in mic?): the voiceprint does the filtering; a headset is better` : '');
 }
 const LOW_SNR_DB = 20;
+const thresholdsOf = (s, v) => {
+  const t = STRICTNESS[s.voiceprints.strictness];
+  return v.seconds >= VOICE.LONG_SEC ? t : { MATCH: t.MATCH_SHORT, OTHER: t.OTHER_SHORT };
+};
 
 // Voiceprint status: how many voices are enrolled and the last line's verdict.
 function showVoice(s) {
@@ -301,7 +318,7 @@ function showVoice(s) {
   const who = (i) => (p.multi ? `speaker ${i + 1}` : 'you');
   ui.dvVoice.textContent = `Voiceprint: ${n}/${of} enrolled` + (!v ? '' : v.reason
     ? ` · last line: unsure (${v.reason})`
-    : ` · last line: ${v.verdict === 'match' ? `${who(v.best)} ✓` : v.verdict === 'other' ? 'someone else ✗' : 'unsure'} (${v.score.toFixed(2)}; match ≥ ${v.seconds >= VOICE.LONG_SEC ? VOICE.MATCH : VOICE.MATCH_SHORT})`);
+    : ` · last line: ${v.verdict === 'match' ? `${who(v.best)} ✓` : v.verdict === 'other' ? 'someone else ✗' : 'unsure (kept)'} (${v.score.toFixed(2)}; ${s.voiceprints.strictness}: dropped under ${thresholdsOf(s, v).OTHER})`);
 }
 // Auto gain or noise suppression would flatten the loudness Loudtype measures;
 // audio.js asks Chrome to turn them off, and this shows whether it did.
@@ -336,10 +353,13 @@ function micReport(s) {
   return {
     mic: mic.label ?? null,
     chromeApplied: { autoGainControl: mic.autoGainControl, noiseSuppression: mic.noiseSuppression, echoCancellation: mic.echoCancellation, sampleRate: mic.sampleRate },
-    calibrated: p.calibrated, normalDb: r1(p.ref), pitchHz: p.pitch && Math.round(p.pitch), noiseFloorDb: r1(p.noiseDb), thresholds: THRESHOLDS,
+    calibrated: p.calibrated, normalDb: r1(p.ref), pitchHz: p.pitch && Math.round(p.pitch), noiseFloorDb: r1(p.noiseDb), thresholds: p.thresholds(),
     ignoreBackground: p.focus, gateDb: r1(Number.isFinite(p.gateDb()) ? p.gateDb() : null),
     gateUnvoicedDb: r1(Number.isFinite(p.gateUnvoicedDb()) ? p.gateUnvoicedDb() : null),
-    voiceprints: { modelReady: voiceReady, enrolled: s.voiceprints.count(p), lastLine: s.voice && { verdict: s.voice.verdict, score: Math.round(s.voice.score * 100) / 100, scores: s.voice.scores.map((x) => (x == null ? null : Math.round(x * 100) / 100)), seconds: r1(s.voice.seconds), reason: s.voice.reason } },
+    sensitivity: p.sensitivity,
+    voiceprints: { modelReady: voiceReady, strictness: s.voiceprints.strictness, enrolled: s.voiceprints.count(p),
+      recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
+      lastLine: s.voice && { verdict: s.voice.verdict, score: Math.round(s.voice.score * 100) / 100, scores: s.voice.scores.map((x) => (x == null ? null : Math.round(x * 100) / 100)), seconds: r1(s.voice.seconds), reason: s.voice.reason } },
     speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
@@ -405,6 +425,12 @@ ui.newJudge.onclick = () => {
 
 // ---------- controls ----------
 ui.focus.onchange = () => { if (session) session.prosody.focus = ui.focus.checked; };
+ui.strictness.onchange = () => { if (session) { session.voiceprints.strictness = ui.strictness.value; showVoice(session); } };
+ui.sensitivity.oninput = () => {
+  ui.sensitivityValue.textContent = Number(ui.sensitivity.value).toFixed(1);
+  if (session) session.prosody.sensitivity = Number(ui.sensitivity.value);
+  showTicks();
+};
 ui.start.onclick = start;
 ui.stop.onclick = stop;
 ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { record: false });

@@ -48,19 +48,34 @@ function room(prosody, { embed = fakeEmbed } = {}) {
   return { vp, ring, word, say, play, now: () => t };
 }
 
-test('cosine and decide: long lines need 0.6 to match, under 0.45 is someone else', () => {
+test('cosine and decide: strict needs 0.6 to match and drops under 0.45; relaxed (default) 0.5 and 0.25', () => {
   assert.ok(Math.abs(cosine([1, 0], [1, 0]) - 1) < 1e-9);
   assert.ok(Math.abs(cosine([1, 0], [0, 2])) < 1e-9);
-  assert.equal(decide([0.7], 2).verdict, 'match');
-  assert.equal(decide([0.5], 2).verdict, 'unsure');
-  assert.equal(decide([0.4], 2).verdict, 'other');
+  assert.equal(decide([0.7], 2, 'strict').verdict, 'match');
+  assert.equal(decide([0.5], 2, 'strict').verdict, 'unsure');
+  assert.equal(decide([0.4], 2, 'strict').verdict, 'other');
+  assert.equal(decide([0.55], 2).verdict, 'match');
+  assert.equal(decide([0.4], 2).verdict, 'unsure'); // relaxed: the speaker's own off-day line is kept
+  assert.equal(decide([0.2], 2).verdict, 'other');
   // Short lines: more evidence before dropping anything
-  assert.equal(decide([0.4], 0.6).verdict, 'unsure');
-  assert.equal(decide([0.2], 0.6).verdict, 'other');
+  assert.equal(decide([0.4], 0.6, 'strict').verdict, 'unsure');
+  assert.equal(decide([0.2], 0.6, 'strict').verdict, 'other');
+  assert.equal(decide([0.2], 0.6).verdict, 'unsure');
   assert.equal(decide([null, null], 2), null);
   // Several profiles: the best must clearly beat the next
   assert.deepEqual([decide([0.3, 0.8], 2).verdict, decide([0.3, 0.8], 2).best], ['match', 1]);
   assert.equal(decide([0.75, 0.72], 2).verdict, 'unsure');
+});
+
+test('lines judged theirs refine the voiceprint (louder, quieter, another room)', async () => {
+  const p = new Prosody();
+  const { vp, word, say } = room(p);
+  for (let i = 0; i < CALIBRATE_WORDS; i++) say({ hz: 180 });
+  await vp.refresh(p);
+  const before = (await vp.identify(p, ...word({ sec: 1.2, hz: 205 }))).score; // their voice drifting up
+  for (let i = 0; i < 4; i++) await vp.identify(p, ...word({ sec: 1.2, hz: 200 }));
+  const after = (await vp.identify(p, ...word({ sec: 1.2, hz: 205 }))).score;
+  assert.ok(after > before, `${before} -> ${after}`);
 });
 
 test('the audio ring returns audio by time and forgets what is too old', () => {
@@ -172,7 +187,7 @@ test('several speakers: each enrolls their own voiceprint, lines go to the match
   assert.deepEqual([p.voice.verdict, p.voice.best], ['match', 1]);
   assert.equal(p.styleWord('w', a, b).speaker, 2);
 
-  const [c, d] = word({ hz: 90, db: -31, sec: 1.2 });
+  const [c, d] = word({ hz: 60, db: -31, sec: 1.2 });
   p.voice = await vp.identify(p, c, d);
   assert.equal(p.voice.verdict, 'other');
   assert.match(p.styleWord('w', c, d).background, /no enrolled voice/);

@@ -7,17 +7,24 @@
 // the eval script and the tests share this logic. Audio and voiceprints live in
 // memory only, for this session.
 //
-// Thresholds come from scripts/eval-voiceprint.mjs (macOS voices, clean and as a
-// MacBook mic hears a room): the same speaker scored 0.66-0.84 on lines of 1 s
-// or more, other voices at most 0.59 (0.47 with room echo). Single words score
+// Thresholds: scripts/eval-voiceprint.mjs (macOS voices, clean and as a MacBook
+// mic hears a room) had the same speaker at 0.66-0.84 on lines of 1 s or more
+// and other voices at most 0.59 (0.47 with room echo); 'strict' sits between.
+// A real person on the MacBook mic scored their own lines lower and was
+// rejected, so the default is 'relaxed': drop only lines that clearly aren't
+// a calibrated voice (strangers in the eval: 0.20 or less). Single words score
 // lower for everyone (the speaker's own "No." was 0.41), so short lines need
 // more evidence before anything is dropped.
 
+/** Voice filter strictness (control panel): the cosine scores that decide. */
+export const STRICTNESS = {
+  relaxed: { MATCH: 0.5, OTHER: 0.25, MATCH_SHORT: 0.45, OTHER_SHORT: 0.15 },
+  strict: { MATCH: 0.6, OTHER: 0.45, MATCH_SHORT: 0.55, OTHER_SHORT: 0.3 },
+};
+
 export const VOICE = {
-  MATCH: 0.6,        // a line of LONG_SEC or more scoring this is a calibrated voice
-  OTHER: 0.45,       // ...under this it is someone else; in between: unsure
-  MATCH_SHORT: 0.55, // the same for shorter lines
-  OTHER_SHORT: 0.3,
+  ...STRICTNESS.relaxed,
+  LEARN_MAX: 8,      // lines judged 'match' that refine a voiceprint (it follows the speaker's mic, room and loudness)
   LONG_SEC: 1.0,
   MIN_SEC: 0.4,      // shorter audio isn't judged
   MAX_SEC: 6,        // only the last 6 s of a long line is embedded
@@ -45,7 +52,8 @@ export function cosine(a, b) {
  * @param {number} seconds  audio length that was embedded
  * @returns {Verdict | null}  null when nobody is enrolled
  */
-export function decide(scores, seconds) {
+export function decide(scores, seconds, strictness = 'relaxed') {
+  const t = STRICTNESS[strictness] ?? STRICTNESS.relaxed;
   let best = -1, score = -Infinity, second = -Infinity;
   scores.forEach((s, i) => {
     if (s == null) return;
@@ -53,8 +61,8 @@ export function decide(scores, seconds) {
   });
   if (best < 0) return null;
   const long = seconds >= VOICE.LONG_SEC;
-  const match = long ? VOICE.MATCH : VOICE.MATCH_SHORT;
-  const other = long ? VOICE.OTHER : VOICE.OTHER_SHORT;
+  const match = long ? t.MATCH : t.MATCH_SHORT;
+  const other = long ? t.OTHER : t.OTHER_SHORT;
   const verdict = score >= match && score - second >= VOICE.MARGIN ? 'match' : score < other ? 'other' : 'unsure';
   return { verdict, best, score, scores, seconds };
 }
@@ -89,6 +97,18 @@ export class AudioRing {
   }
 }
 
+/** Mean direction of several embeddings (each normalized first). */
+function centroid(vecs) {
+  const out = new Float64Array(vecs[0].length);
+  for (const v of vecs) {
+    let n = 0;
+    for (let i = 0; i < v.length; i++) n += v[i] * v[i];
+    n = Math.sqrt(n) || 1;
+    for (let i = 0; i < v.length; i++) out[i] += v[i] / n;
+  }
+  return out;
+}
+
 function concat(parts) {
   const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
   let o = 0;
@@ -106,8 +126,10 @@ export class Voiceprints {
     this.embed = embed;
     this.ring = ring;
     this.rate = ring.rate;
-    /** @type {WeakMap<object, { key: string, vec: ArrayLike<number> | null, pending: Promise<void> | null }>} */
+    /** @type {WeakMap<object, { key: string, vec: ArrayLike<number> | null, learned: ArrayLike<number>[], pending: Promise<void> | null }>} */
     this.enrolled = new WeakMap();
+    /** @type {'relaxed' | 'strict'} */
+    this.strictness = 'relaxed';
     /** @type {Verdict | null} */
     this.last = null;
   }
@@ -131,7 +153,7 @@ export class Voiceprints {
       const key = words.map((w) => w.start.toFixed(3)).join(',');
       const cur = this.enrolled.get(p);
       if (cur?.key === key) { if (cur.pending) jobs.push(cur.pending); continue; }
-      const entry = { key, vec: key ? cur?.vec ?? null : null, pending: null };
+      const entry = { key, vec: key ? cur?.vec ?? null : null, learned: [], pending: null };
       this.enrolled.set(p, entry);
       if (!key) continue;
       const parts = words.map((w) => this.ring.slice(w.start - VOICE.PAD_SEC, w.end + VOICE.PAD_SEC)).filter(Boolean);
@@ -154,7 +176,8 @@ export class Voiceprints {
   async identify(prosody, start, end) {
     await this.refresh(prosody);
     if (!prosody.focus || prosody.enrolling) return null;
-    const vecs = this.profilesOf(prosody).map((p) => this.enrolled.get(p)?.vec ?? null);
+    const entries = this.profilesOf(prosody).map((p) => this.enrolled.get(p));
+    const vecs = entries.map((e) => (e?.vec ? centroid([e.vec, ...e.learned]) : null));
     if (vecs.every((v) => !v)) return null;
     const unsure = (reason, seconds = 0) => ({ verdict: /** @type {const} */ ('unsure'), best: -1, score: 0, scores: vecs.map(() => null), seconds, reason });
     const st = prosody.stats(start, end);
@@ -166,7 +189,13 @@ export class Voiceprints {
     if (seconds < VOICE.MIN_SEC) return unsure('too short', seconds);
     const vec = await this.embed(audio);
     const scores = vecs.map((v) => (v ? cosine(v, vec) : null));
-    const verdict = decide(scores, seconds);
+    const verdict = decide(scores, seconds, this.strictness);
+    // A line surely theirs (long, matched) refines their voiceprint: louder, quieter, a different room.
+    if (verdict?.verdict === 'match' && seconds >= VOICE.LONG_SEC) {
+      const e = entries[verdict.best];
+      e.learned.push(vec);
+      if (e.learned.length > VOICE.LEARN_MAX) e.learned.shift();
+    }
     this.last = verdict;
     return verdict;
   }

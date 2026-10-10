@@ -93,9 +93,10 @@ export class Speakers extends Prosody {
   gateDb() {
     if (!this.multi) return super.gateDb();
     if (!this.focus) return -Infinity;
-    if (this.enrolling) return this.noiseDb + 10;
+    if (this.enrolling) return this.noiseDb + 5; // as Prosody before calibration
     // The quieter enrolled speaker must still reach Scribe.
-    return Math.max(this.noiseDb + 6, Math.min(...this.profiles.map((p) => p.ref)) - 18);
+    const ref = Math.min(...this.profiles.map((p) => p.ref));
+    return Math.min(ref - 8, Math.max(this.noiseDb + 6, ref - 18)); // as Prosody.gateDb, for the quietest speaker
   }
 
   styleLive(start, end, n) {
@@ -126,6 +127,7 @@ export class Speakers extends Prosody {
     p.frames = this.frames;
     p.noiseDb = this.noiseDb;
     p.focus = false; // matching above already checked every enrolled profile
+    p.sensitivity = this.sensitivity;
     if (this.enrolling) {
       // Keep learning until the handoff click: the loudest voice wins (learn()),
       // so chatter transcribed before the person spoke can't become their profile.

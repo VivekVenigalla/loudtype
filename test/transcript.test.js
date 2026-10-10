@@ -426,16 +426,16 @@ test('a recalibration while the voiceprint runs drops the old line', async () =>
   assert.equal(styledCount, 0);
 });
 
-test('live words wait for the first voiceprint check and disappear if it is someone else', async () => {
+test('live words show at once and disappear if the voiceprint says someone else', async () => {
   const tr = make();
   let answer;
   tr.prosody.focus = true;
   tr.identify = () => new Promise((resolve) => { answer = resolve; });
   tr.at(5); tr.partial('did you');
-  assert.equal(sent.length, 0);                 // not shown before the check
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['did', 'you']); // no waiting for the check
   answer(verdict('other'));
   await flush();
-  assert.deepEqual(lastLine().words, []);       // someone else: nothing on screen
+  assert.deepEqual(lastLine().words, []);       // someone else: off screen
   tr.at(6); tr.partial('did you see');          // a new check starts; the line stays hidden meanwhile
   assert.deepEqual(lastLine().words, []);
   answer(verdict('match'));

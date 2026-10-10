@@ -238,7 +238,7 @@ test('turning the filter off captions everyone', () => {
 
 test('the audio gate opens just under the main speaker\'s whispers, never into the room noise', () => {
   const sp = speaker();
-  assert.ok(Math.abs(sp.p.gateDb() - (ROOM + 10)) < 0.01); // before calibration: anything that counts as speech
+  assert.ok(Math.abs(sp.p.gateDb() - (ROOM + 5)) < 0.01); // before calibration: anything 5 dB over the room (a laptop voice is only ~12 dB over it)
   for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello', { pitch: HER });
   assert.ok(Math.abs(sp.p.gateDb() - (NORMAL - 18)) < 0.01);
   const close = speaker(); // a quiet room... versus a loud one where the floor is only 20 dB down
@@ -271,7 +271,7 @@ test('whispers get through the gate from lower down: room + 3 dB, or normal - 22
   for (let i = 0; i < CALIBRATE_WORDS; i++) laptop.say('hello');
   laptop.p.noiseDb = laptop.p.ref - 12;
   assert.ok(Math.abs(laptop.p.gateUnvoicedDb() - (laptop.p.noiseDb + 3)) < 0.01); // whispers ~8 dB under normal still pass
-  assert.ok(Math.abs(laptop.p.gateDb() - (laptop.p.noiseDb + 6)) < 0.01);
+  assert.ok(Math.abs(laptop.p.gateDb() - (laptop.p.ref - 8)) < 0.01); // noise + 6 would be over normal - 8: the speaker's own words must pass
   laptop.p.focus = false;
   assert.equal(laptop.p.gateUnvoicedDb(), -Infinity);
 });
@@ -282,4 +282,25 @@ test('calibration remembers which words it learned from (voiceprint enrollment)'
   for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello');
   assert.equal(sp.p.calibWords.length, CALIBRATE_WORDS); // not the whisper
   assert.ok(sp.p.calibWords.every((w) => w.end > w.start));
+});
+
+test('normal speech wobbling ±5 dB stays normal; sensitivity scales the steps', () => {
+  const sp = speaker();
+  for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello');
+  assert.equal(sp.say('hey', { db: NORMAL + 5.1 }).level, 'normal'); // was 'loud' with the old +5 step
+  assert.equal(sp.say('hey', { db: NORMAL - 5.1 }).level, 'normal');
+  sp.p.sensitivity = 1.5;                                             // more sensitive: steps ×2/3
+  assert.equal(sp.say('hey', { db: NORMAL + 5.1 }).level, 'loud');
+  sp.p.sensitivity = 0.5;                                             // calmer: steps ×2
+  assert.equal(sp.say('hey', { db: NORMAL + 10 }).level, 'normal');
+  assert.equal(sp.say('hey', { db: NORMAL + 17 }).level, 'shout');
+  assert.deepEqual(sp.p.thresholds(), { whisper: -20, soft: -12, loud: 12, shout: 16 });
+});
+
+test('the gate never rises above normal - 8 dB, even when nonstop talking lifts the noise estimate', () => {
+  const sp = speaker();
+  for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello');
+  sp.frames(20, NORMAL - 2, 0.7); // 20 s of talking with no pauses
+  assert.ok(sp.p.gateDb() <= sp.p.ref - 8 + 1e-9, `gate ${sp.p.gateDb()} vs normal ${sp.p.ref}`);
+  assert.ok(sp.p.gateUnvoicedDb() <= sp.p.gateDb());
 });

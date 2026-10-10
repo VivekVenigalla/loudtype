@@ -28,14 +28,17 @@ import { LEVELS } from './caption.js';
 import { VOICED_FRAME } from './features.js';
 
 // dB relative to the speaker's normal level.
-export const THRESHOLDS = { whisper: -10, soft: -5, loud: 5, shout: 8 }; // shout was +10: AirPods cap shouts at +8..+10
+// soft/loud were ±5: normal speech wobbles up to +5.1, so ordinary words jumped size.
+export const THRESHOLDS = { whisper: -10, soft: -6, loud: 6, shout: 8 }; // shout was +10: AirPods cap shouts at +8..+10
+/** Sensitivity (control panel slider): thresholds are divided by it. 1 = THRESHOLDS; lower = calmer captions. */
+export const SENSITIVITY = { min: 0.5, max: 1.5, default: 1 };
 export const CALIBRATE_WORDS = 6;
 const CALIB_CLUSTER_DB = 8;   // calibration learns the loudest voice: words this far under it are someone farther away
 const CALIB_KEEP = 24;        // most recent calibration words kept
 const UNVOICED_SHARE = 0.3;   // below this share of voiced frames → whisper
 const WHISPER_MAX_DB = 4;     // an unvoiced word louder than normal+4 isn't a whisper
 const NOISE_FLOOR_MIN_DB = -72;
-const NOISE_WINDOW = 150;     // frames (~5 s) used to estimate the noise floor
+const NOISE_WINDOW = 450;     // frames (~15 s) used to estimate the noise floor (5 s of nonstop talking pulled it up into the voice)
 const SILENCE_MARGIN_DB = 3;  // a word span this close to the noise floor has no word in it
 const TRACK_RATE = 0.05;      // how fast "normal" follows the speaker after calibration
 const HISTORY_SEC = 30;
@@ -51,6 +54,8 @@ const PITCH_BELOW_ST = 5;     // pitch range (semitones around the main speaker'
 const PITCH_ABOVE_ST = 7;
 const GATE_BELOW_NORMAL_DB = 18; // the audio gate passes down to normal - 18 dB (whispers measured down to -15)
 const GATE_ABOVE_NOISE_DB = 6;   // ...but never lower than this over the room noise
+const GATE_MAX_BELOW_NORMAL_DB = 8; // ...and never higher than this under normal: the speaker's own words always pass
+const GATE_UNCALIBRATED_DB = 5;  // before calibration: this over the room (a laptop mic's voice is only ~12 dB over it)
 const GATE_UNVOICED_BELOW_NORMAL_DB = 22; // unvoiced frames (whispers) pass from here (laptop mic: whispers ~8 dB under normal, near the room)
 const GATE_UNVOICED_ABOVE_NOISE_DB = 3;
 const ENROLL_EXTRA_SEC = 3;   // after calibration, up to this much more of the speaker's voice goes into their voiceprint
@@ -70,6 +75,7 @@ export class Prosody {
     this.calibPitches = [];
     this.enrollExtra = []; // { start, end } of the words right after calibration, until the voiceprint exists
     this.focus = true;    // ignore everyone but the main speaker
+    this.sensitivity = SENSITIVITY.default;
     this.wordPace = [];   // ms per letter
     this.last = null;     // last committed word's measurements (Director's View)
     this.history = [];    // the last REPORT_WORDS of those (mic report)
@@ -150,14 +156,21 @@ export class Prosody {
     };
   }
 
+  /** THRESHOLDS at the current sensitivity (dB vs normal). */
+  thresholds() {
+    const k = Math.min(SENSITIVITY.max, Math.max(SENSITIVITY.min, this.sensitivity || 1));
+    return { whisper: THRESHOLDS.whisper / k, soft: THRESHOLDS.soft / k, loud: THRESHOLDS.loud / k, shout: THRESHOLDS.shout / k };
+  }
+
   levelFor(st) {
     if (!st || !this.calibrated) return 'normal';
     const d = st.db - this.ref;
-    if (d <= THRESHOLDS.whisper || (st.voiced < UNVOICED_SHARE && d < WHISPER_MAX_DB)) return 'whisper';
+    const th = this.thresholds();
+    if (d <= th.whisper || (st.voiced < UNVOICED_SHARE && d < WHISPER_MAX_DB)) return 'whisper';
     if (st.voiced < BURST_MAX_VOICED) return 'normal'; // loud but no voice in it
-    if (d <= THRESHOLDS.soft) return 'soft';
-    if (d >= THRESHOLDS.shout) return 'shout';
-    if (d >= THRESHOLDS.loud) return 'loud';
+    if (d <= th.soft) return 'soft';
+    if (d >= th.shout) return 'shout';
+    if (d >= th.loud) return 'loud';
     return 'normal';
   }
 
@@ -185,8 +198,8 @@ export class Prosody {
   /** dBFS the audio gate needs before speech-to-text hears anything (-Infinity = gate off). */
   gateDb() {
     if (!this.focus) return -Infinity;
-    if (!this.calibrated) return this.noiseDb + 10; // until then: anything that counts as speech
-    return Math.max(this.noiseDb + GATE_ABOVE_NOISE_DB, this.ref - GATE_BELOW_NORMAL_DB);
+    if (!this.calibrated) return this.noiseDb + GATE_UNCALIBRATED_DB;
+    return Math.min(this.ref - GATE_MAX_BELOW_NORMAL_DB, Math.max(this.noiseDb + GATE_ABOVE_NOISE_DB, this.ref - GATE_BELOW_NORMAL_DB));
   }
 
   /** The main speaker's normal level used by the gate (Speakers: the quietest enrolled speaker); null until known. */
