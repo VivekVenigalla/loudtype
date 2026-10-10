@@ -308,6 +308,7 @@ function showLineInfo(text, emotion, confidence, info) {
 // Hotkeys force a mood (e.g. a fake rage bit goes red on cue); 0 = automatic.
 const MOOD_KEYS = { 1: 'happy', 2: 'calm', 3: 'angry', 4: 'sad', 0: null };
 document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return; // Cmd+1 switches tabs, it isn't a mood
   if (e.target.closest('input, select, textarea') || !(e.key in MOOD_KEYS)) return;
   forcedMood = MOOD_KEYS[e.key];
   ui.mood.textContent = forcedMood ? `Mood forced: ${forcedMood} (press 0 for automatic)` : 'Mood: automatic';
