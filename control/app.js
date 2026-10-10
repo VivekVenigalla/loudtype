@@ -1,7 +1,8 @@
 // Control panel: listens, analyzes, and tells the overlay what to draw.
 import { startAudio } from './audio.js';
 import { openScribe } from './stt.js';
-import { Prosody, LEVELS, THRESHOLDS } from './prosody.js';
+import { Prosody, THRESHOLDS } from './prosody.js';
+import { LEVELS } from './caption.js';
 import { classify, warmUp } from './emotion.js';
 import { Relay } from './relay.js';
 import { download, toSrt, toAfterEffects } from './export.js';

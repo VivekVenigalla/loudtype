@@ -3,6 +3,7 @@
 // with voice energy in emotion-core.js. Caption text never leaves the computer.
 import { pipeline, env } from '/vendor/transformers/transformers.min.js';
 import { decide, voiceEnergy } from './emotion-core.js';
+import { EMOTION_MODEL } from './caption.js';
 
 env.allowRemoteModels = false;
 env.allowLocalModels = true;
@@ -11,11 +12,10 @@ env.useBrowserCache = false;
 env.backends.onnx.wasm.wasmPaths = '/vendor/ort/';
 env.backends.onnx.wasm.numThreads = 1; // page isn't cross-origin isolated
 
-const MODEL = 'SamLowe/roberta-base-go_emotions-onnx';
 let clf = null;
 
 export function warmUp() {
-  clf ??= pipeline('text-classification', MODEL, { dtype: 'q8', device: 'wasm' })
+  clf ??= pipeline('text-classification', EMOTION_MODEL, { dtype: 'q8', device: 'wasm' })
     .catch((err) => { clf = null; throw err; });
   return clf;
 }

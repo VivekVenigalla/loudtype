@@ -3,9 +3,10 @@
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EMOTION_MODEL } from '../control/caption.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MODEL = 'SamLowe/roberta-base-go_emotions-onnx'; // GoEmotions: 28 emotions incl. neutral
+const MODEL = EMOTION_MODEL;
 const MODEL_FILES = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_quantized.onnx'];
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36';
 

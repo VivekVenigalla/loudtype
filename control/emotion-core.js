@@ -7,6 +7,7 @@
 //
 //   positive + energetic → happy   positive + relaxed → calm
 //   negative + energetic → angry   negative + relaxed → sad
+import { LEVEL_ORDER } from './caption.js';
 
 const POS = ['admiration', 'amusement', 'approval', 'caring', 'desire', 'excitement', 'gratitude', 'joy', 'love', 'optimism', 'pride', 'relief'];
 const NEG = ['anger', 'annoyance', 'disappointment', 'disapproval', 'disgust', 'embarrassment', 'fear', 'grief', 'nervousness', 'remorse', 'sadness'];
@@ -60,8 +61,7 @@ export function decide(scores, text, voiceEnergy, minConfidence) {
 /** Voice energy 0..1 from per-word levels (normal speech ≈ 0.5). */
 export function voiceEnergy(levels) {
   if (!levels.length) return 0.5;
-  const order = ['whisper', 'soft', 'normal', 'loud', 'shout'];
-  const mean = levels.reduce((a, l) => a + order.indexOf(l) / 4, 0) / levels.length;
+  const mean = levels.reduce((a, l) => a + LEVEL_ORDER.indexOf(l) / 4, 0) / levels.length;
   const loud = levels.filter((l) => l === 'loud' || l === 'shout').length / levels.length;
   const soft = levels.filter((l) => l === 'soft' || l === 'whisper').length / levels.length;
   return clamp(mean + 0.3 * loud - 0.3 * soft, 0, 1);

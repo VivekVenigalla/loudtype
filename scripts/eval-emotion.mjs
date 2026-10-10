@@ -2,6 +2,7 @@
 // Run: node scripts/eval-emotion.mjs
 import { pipeline, env } from '@huggingface/transformers';
 import { fileURLToPath } from 'node:url';
+import { EMOTION_MODEL } from '../control/caption.js';
 env.allowRemoteModels = false;
 env.localModelPath = fileURLToPath(new URL('../models/', import.meta.url));
 
@@ -36,7 +37,7 @@ const QUADRANTS = [
 
 const { decide, voiceEnergy } = await import(new URL('../control/emotion-core.js', import.meta.url));
 const MIN = 0.7;
-const go = await pipeline('text-classification', 'SamLowe/roberta-base-go_emotions-onnx', { dtype: 'q8' });
+const go = await pipeline('text-classification', EMOTION_MODEL, { dtype: 'q8' });
 // The old SST-2 model is only for comparison; skip it if it isn't downloaded.
 const sst = await pipeline('text-classification', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english', { dtype: 'q8' }).catch(() => null);
 const VAL = { happy: 'pos', calm: 'pos', angry: 'neg', sad: 'neg', neutral: 'neu' };

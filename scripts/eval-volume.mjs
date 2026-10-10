@@ -11,7 +11,8 @@ import { pathToFileURL } from 'node:url';
 const ROOT = new URL('..', import.meta.url);
 const { CONFIG } = await import(new URL('config.js', ROOT));
 const { frameFeatures } = await import(new URL('control/features.js', ROOT));
-const { Prosody, LEVEL_ORDER } = await import(new URL('control/prosody.js', ROOT));
+const { Prosody } = await import(new URL('control/prosody.js', ROOT));
+const { LEVEL_ORDER } = await import(new URL('control/caption.js', ROOT));
 const OldProsody = process.argv[2] ? (await import(pathToFileURL(process.argv[2]).href)).Prosody : null;
 
 const SR = 48000;

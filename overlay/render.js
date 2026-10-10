@@ -1,6 +1,7 @@
 // Overlay: draws what the control panel sends. Holds no state worth saving,
 // so OBS can reload it at any time.
-const ICONS = { happy: '★', calm: '●', angry: '▲', sad: '▼', neutral: '' };
+import { ICONS } from '../control/caption.js';
+
 const CLEAR_AFTER_MS = 3500;
 const MAX_LINES = 2;
 

@@ -54,6 +54,8 @@ test('after effects: embeds timing, size, color, icon and markers per line', () 
   assert.equal(data.lines[1].prefix, '★ ');
   assert.equal(data.lines[1].marker, 'SHOUT x1 / HAPPY');
   assert.deepEqual(data.lines[0].color, [1, 1, 1]);
+  assert.deepEqual(data.lines[1].color, [1, 0.847, 0.302]); // #ffd84d, as before
+  assert.deepEqual(data.lines[2].color, [0.357, 0.89, 0.549]); // #5be38c
   assert.equal(data.lines[0].end, 1.2 + 1.5);
   assert.equal(data.duration, 10.4 + 1.5 + 1);
 });

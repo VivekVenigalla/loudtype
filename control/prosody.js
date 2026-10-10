@@ -10,14 +10,7 @@
 //
 // Only numbers are kept (time, dB, voicing), in short buffers that age out.
 
-export const LEVELS = {
-  whisper: { size: 0.75, wght: 220 },
-  soft:    { size: 0.9,  wght: 350 },
-  normal:  { size: 1.0,  wght: 450 },
-  loud:    { size: 1.25, wght: 700 },
-  shout:   { size: 1.6,  wght: 1000 },
-};
-export const LEVEL_ORDER = ['whisper', 'soft', 'normal', 'loud', 'shout'];
+import { LEVELS } from './caption.js';
 
 // dB relative to the speaker's normal level.
 export const THRESHOLDS = { whisper: -10, soft: -5, loud: 5, shout: 10 };

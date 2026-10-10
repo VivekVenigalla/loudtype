@@ -4,14 +4,10 @@
 // `lines`: [{ line, text, emotion, confidence, words: [{word, level, size, wght, wdth, start, end}] }]
 // Times are seconds since the session started.
 
-const COLORS = {
-  neutral: [1, 1, 1],
-  happy: [1, 0.847, 0.302],
-  calm: [0.357, 0.89, 0.549],
-  angry: [1, 0.302, 0.302],
-  sad: [0.353, 0.663, 1],
-};
-const ICONS = { happy: '★ ', calm: '● ', angry: '▲ ', sad: '▼ ', neutral: '' };
+import { ICONS, EMOTION_COLORS } from './caption.js';
+
+// '#ffd84d' → [1, 0.847, 0.302], the 0..1 RGB After Effects wants.
+const aeColor = (hex) => [1, 3, 5].map((i) => Math.round((parseInt(hex.slice(i, i + 2), 16) / 255) * 1000) / 1000);
 const LINGER = 1.5; // seconds a caption stays after its last word
 
 export function download(name, text, type = 'text/plain') {
@@ -61,8 +57,8 @@ export function toAfterEffects(lines) {
       const { start, end } = span(l);
       return {
         start, end: end + LINGER,
-        prefix: ICONS[l.emotion] || '',
-        color: COLORS[l.emotion] || COLORS.neutral,
+        prefix: ICONS[l.emotion] ? `${ICONS[l.emotion]} ` : '',
+        color: aeColor(EMOTION_COLORS[l.emotion] || EMOTION_COLORS.neutral),
         marker: highlightLabel(l),
         words: l.words.map((w) => ({ t: w.start, w: w.word, s: w.size })),
       };

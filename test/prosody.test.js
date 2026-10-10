@@ -1,7 +1,8 @@
 // Prosody with synthetic frames: what the worklet would report, ~30 per second.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Prosody, LEVELS, THRESHOLDS, CALIBRATE_WORDS } from '../control/prosody.js';
+import { Prosody, THRESHOLDS, CALIBRATE_WORDS } from '../control/prosody.js';
+import { LEVELS } from '../control/caption.js';
 
 const FRAME = 0.033;
 const ROOM = -60;   // dBFS between words
