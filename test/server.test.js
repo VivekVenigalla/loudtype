@@ -163,3 +163,11 @@ test('the relay refuses a non-loopback Host', { skip }, async () => {
   assert.equal(await relayConnect(), 'open');
   assert.equal(await relayConnect({ headers: { Host: `evil.example:${port}` } }), 401);
 });
+
+test('pages are cross-origin isolated (multi-threaded emotion model)', { skip }, async () => {
+  for (const path of ['/control/', '/overlay/', '/vendor/ort/ort.wasm.min.mjs', '/config']) {
+    const res = await get(path);
+    assert.equal(res.headers['cross-origin-opener-policy'], 'same-origin', path);
+    assert.equal(res.headers['cross-origin-embedder-policy'], 'require-corp', path);
+  }
+});

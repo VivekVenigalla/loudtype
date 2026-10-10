@@ -10,7 +10,10 @@ env.allowLocalModels = true;
 env.localModelPath = '/models/';
 env.useBrowserCache = false;
 env.backends.onnx.wasm.wasmPaths = '/vendor/ort/';
-env.backends.onnx.wasm.numThreads = 1; // page isn't cross-origin isolated
+// Threads need cross-origin isolation (server.js sends the headers); else one.
+env.backends.onnx.wasm.numThreads = globalThis.crossOriginIsolated
+  ? Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 2)))
+  : 1;
 
 let clf = null;
 

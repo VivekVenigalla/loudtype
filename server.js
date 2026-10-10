@@ -43,8 +43,17 @@ async function mintToken(res) {
   }
 }
 
+// Cross-origin isolation lets the emotion model run on several threads
+// (SharedArrayBuffer). Every page and file comes from this server, so nothing
+// the pages load is blocked by it.
+const HEADERS = {
+  'Cache-Control': 'no-store',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
 function send(res, code, body, type = 'text/plain') {
-  res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+  res.writeHead(code, { ...HEADERS, 'Content-Type': type });
   res.end(body);
 }
 
@@ -74,9 +83,9 @@ async function handle(req, res) {
   }
   // Stream instead of reading whole files: the emotion model alone is 125 MB.
   res.writeHead(200, {
+    ...HEADERS,
     'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
     'Content-Length': info.size,
-    'Cache-Control': 'no-store',
   });
   createReadStream(file).on('error', () => res.destroy()).pipe(res);
 }
