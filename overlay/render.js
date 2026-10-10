@@ -17,7 +17,7 @@ fetch('/config').then((r) => r.json()).then((c) => {
   document.body.classList.toggle('colorblind', !!settings.COLORBLIND_PALETTE);
 }).catch(() => {});
 
-const lines = new Map(); // line id → { el, icon, words: [span] }
+const lines = new Map(); // line id → { el, tag, icon, words: [span] }
 let clearTimer = null;
 
 function getLine(id) {
@@ -25,11 +25,14 @@ function getLine(id) {
   if (l) return l;
   const el = document.createElement('div');
   el.className = 'line';
+  const tag = document.createElement('span');
+  tag.className = 'speaker';
+  el.appendChild(tag);
   const icon = document.createElement('span');
   icon.className = 'icon';
   el.appendChild(icon);
   stage.appendChild(el);
-  l = { el, icon, words: [] };
+  l = { el, tag, icon, words: [] };
   lines.set(id, l);
   // Keep only the newest lines on screen.
   while (lines.size > MAX_LINES) {
@@ -113,6 +116,7 @@ function renderChunk(key, words, msg) {
   if (emotion !== 'neutral') l.el.classList.add(emotion);
   if (msg.provisional) l.el.classList.add('provisional');
   l.icon.textContent = ICONS[emotion] || '';
+  l.tag.textContent = msg.speaker ? `S${msg.speaker}` : '';
 
   fitLine(l);
 }
@@ -125,7 +129,7 @@ function fitLine(l) {
   l.words.forEach((s) => s.classList.remove('hidden'));
   l.el.style.setProperty('--fit', 1);
   const max = stage.clientWidth;
-  const width = () => [l.icon, ...l.words].reduce((a, e) => a + e.offsetWidth, 0);
+  const width = () => [l.tag, l.icon, ...l.words].reduce((a, e) => a + e.offsetWidth, 0);
   const fit = Math.max(MIN_FIT, Math.min(1, max / width()));
   l.el.style.setProperty('--fit', fit.toFixed(3));
   for (const s of l.words.slice(0, -1)) { // always keep the newest word

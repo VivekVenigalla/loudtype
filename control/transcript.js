@@ -3,6 +3,15 @@
 // UI, and test/transcript.test.js drives it with fake events.
 import { LEVELS } from './caption.js';
 
+/** The speaker who said most of a line's words (1-based), or null when words carry none. */
+function lineSpeaker(words) {
+  const counts = new Map();
+  for (const w of words) if (w.speaker) counts.set(w.speaker, (counts.get(w.speaker) || 0) + 1);
+  let best = null, n = 0;
+  for (const [sp, c] of counts) if (c > n) { best = sp; n = c; }
+  return best;
+}
+
 const splitWords = (text) => text.trim().split(/\s+/).filter(Boolean);
 const plainWord = (word) => ({ word, level: 'normal', ...LEVELS.normal, wdth: 100 });
 
@@ -26,8 +35,8 @@ export class Transcript {
    * @param {() => import('./caption.js').Emotion | null} deps.mood  mood forced by a hotkey, or null
    * @param {(voice: import('./voiceprint-core.js').Verdict | null) => void} [deps.onStyled]  a committed line's words were just measured (with its voiceprint verdict)
    * @param {(line: object, info: object | null) => void} [deps.onFinal]  a line is finished
-   * @param {(start: number, end: number) => Promise<import('./voiceprint-core.js').Verdict | null> | null} [deps.identify]
-   *        whose voice is in that audio (AudioContext s); null/omitted = no voiceprints
+   * @param {(start: number, end: number, live?: boolean) => Promise<import('./voiceprint-core.js').Verdict | null> | null} [deps.identify]
+   *        whose voice is in that audio (AudioContext s; live = a partial, only guess); null/omitted = no voiceprints
    * @param {() => number} [deps.clock]  ms
    */
   constructor({ prosody, send, classify, mood, onStyled = () => {}, onFinal = () => {}, identify = null, clock = () => performance.now() }) {
@@ -48,6 +57,7 @@ export class Transcript {
     this.untimed = null;     // last line finalized without timestamps: { id, text, at, emotion, superseded }
     this.lags = [];          // measured partial delays (s)
     this.lines = [];         // finished lines with word timings, for export (memory only)
+    this.lastSpeaker = null; // label-everyone mode: the last finished line's speaker (1-based)
     this.closed = false;
     this.generation = 0;
   }
@@ -59,6 +69,7 @@ export class Transcript {
     this.current = null;
     this.untimed = null;
     this.lastFinal = { text: '', at: 0 };
+    this.lastSpeaker = null;
   }
 
   close() {
@@ -139,9 +150,9 @@ export class Transcript {
    * 'other' takes them off screen. The committed line is checked again in full.
    */
   checkVoice(cur, now) {
-    if (!this.identify || !this.prosody.focus || cur.checking) return;
+    if (!this.identify || !(this.prosody.focus || this.prosody.multi) || cur.checking) return;
     const lag = this.partialLag();
-    const pending = this.identify(cur.audioStart, now - lag + LIVE_TAIL);
+    const pending = this.identify(cur.audioStart, now - lag + LIVE_TAIL, true);
     if (!pending) { cur.voice = null; return; }
     cur.checking = true;
     pending
@@ -163,10 +174,13 @@ export class Transcript {
       // Live words whose audio sounds like someone else (level/pitch) wait for the committed line.
       .filter((w) => !(focus && w.background))
       .map(({ background, ...w }) => w);
+    // Label everyone: the live guess of who is talking, else whoever spoke last.
+    const guess = cur.voice?.verdict === 'match' ? cur.voice.best + 1 : this.lastSpeaker ?? 1; // the first voice heard is S1
     this.send({
       type: 'line', line: cur.id, final: false, provisional: true,
       emotion: this.mood() ?? cur.provisional, confidence: 0,
       words: stranger ? [] : words,
+      ...(this.prosody.multi && guess ? { speaker: guess } : {}),
     });
   }
 
@@ -252,7 +266,9 @@ export class Transcript {
       return;
     }
 
-    const base = { type: /** @type {const} */ ('line'), line: id, words };
+    const speaker = lineSpeaker(words);
+    if (speaker) this.lastSpeaker = speaker;
+    const base = { type: /** @type {const} */ ('line'), line: id, words, ...(speaker ? { speaker } : {}) };
     this.send({ ...base, final: false, provisional: true, emotion: this.mood() ?? provisional, confidence: 0 });
 
     /** @type {import('./caption.js').Emotion} */
@@ -270,7 +286,7 @@ export class Transcript {
     if (forced) { emotion = forced; confidence = 1; }
     if (untimed) untimed.emotion = emotion;
     this.send({ ...base, final: true, provisional: false, emotion, confidence: +confidence.toFixed(2) });
-    const line = { line: id, text, emotion, confidence, words };
+    const line = { line: id, text, emotion, confidence, words, ...(speaker ? { speaker } : {}) };
     if (words.every((w) => typeof w.start === 'number')) this.lines.push(line);
     this.onFinal(line, info);
   }

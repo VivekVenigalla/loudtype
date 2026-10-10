@@ -31,29 +31,28 @@
     (<a href="/overlay/?bg" target="_blank">open with test background</a>)</div>
 
   <section>
-    <label>Speakers: <input id="speaker-count" type="number" min="1" max="32" step="1" value="1" required style="width:70px"></label>
     <button id="start">Start</button>
     <button id="stop" disabled>Stop</button>
     <span id="status">Idle</span>
     <div class="meter"><div id="meter-fill"></div></div>
     <div id="calib"></div>
     <div id="speaker-list" aria-live="polite"></div>
-    <button id="speaker-next" hidden disabled>Calibrate next speaker</button>
     <div id="mood">Mood: automatic</div>
-    <label><input type="checkbox" id="focus" checked> Ignore background: filter speech against the calibrated speaker(s)</label><br>
-    <label>Voice filter <select id="strictness">
+    <label><input type="checkbox" id="focus"> Main speaker only (set before Start): the first sentence calibrates you; everyone else is ignored.
+      Off: everyone is captioned and labeled S1, S2… by voice, no calibration.</label><br>
+    <label>Voice filter (main speaker only) <select id="strictness">
       <option value="relaxed" selected>Relaxed: drop only voices that clearly aren't calibrated</option>
       <option value="strict">Strict: also drop voices that only roughly match</option>
     </select></label><br>
     <label>Size sensitivity <input type="range" id="sensitivity" min="0.5" max="1.5" step="0.1" value="1"> <span id="sensitivity-value">1.0</span></label>
     <small>Lower = only big changes in loudness change the size.</small><br>
-    <small>For multiple speakers, calibrate one at a time from where each person will talk. Use a shared mic and take turns. Matching uses pitch and volume; similar voices and whispers may pass the filter. Overlapping speech is not supported. Captions wait for word timings when filtering multiple speakers.</small><br>
+    <small>Speaker labels come from on-device voiceprints of each line (about a second of speech). Short lines and whispers stay with the last speaker. Similar voices may share a label; overlapping speech is not supported. Each speaker's first few words show at normal size while their loudness is learned.</small><br>
     <small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 0 automatic</small>
   </section>
 
   <section>
     <strong>Table demo</strong>
-    <button id="new-judge">New judge (recalibrate all speakers + prompts)</button>
+    <button id="new-judge">New judge (forget all voices + prompts)</button>
     <button id="prompt-prev">◀</button><button id="prompt-next">Next prompt ▶</button><button id="prompt-hide">Hide prompt</button>
     <div>Showing on overlay: <span id="prompt">(hidden)</span></div>
   </section>

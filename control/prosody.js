@@ -87,6 +87,8 @@ export class Prosody {
   }
 
   get calibrated() { return this.ref != null; }
+  /** Several speakers, each line labeled (speakers.js label-everyone mode). */
+  get multi() { return false; }
   get calibration() { return this.calibrated ? 1 : this.calibDbs.length / CALIBRATE_WORDS; }
 
   recalibrate() {

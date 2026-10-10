@@ -6,7 +6,7 @@ import { Speakers } from './speakers.js';
 import { Transcript } from './transcript.js';
 import { classify, warmUp } from './emotion.js';
 import { embed, loadVoiceModel } from './voiceprint.js';
-import { AudioRing, Voiceprints, VOICE, STRICTNESS } from './voiceprint-core.js';
+import { AudioRing, Voiceprints, VOICE, STRICTNESS, DIARIZE } from './voiceprint-core.js';
 import { Relay } from './relay.js';
 import { download, toSrt, toAfterEffects } from './export.js';
 
@@ -19,7 +19,7 @@ const ui = {
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), focus: $('focus'),
-  speakerCount: $('speaker-count'), speakerNext: $('speaker-next'), speakerList: $('speaker-list'),
+  speakerList: $('speaker-list'),
   strictness: $('strictness'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
 
@@ -35,8 +35,7 @@ let forcedMood = null; // creator override from hotkeys; null = automatic
 
 fetch('/config').then((r) => r.json()).then((c) => {
   config = { ...config, ...c };
-  ui.focus.checked = config.IGNORE_BACKGROUND !== false;
-  if (session) session.prosody.focus = ui.focus.checked;
+  ui.focus.checked = config.IGNORE_BACKGROUND === true; // default: label everyone
 }).catch(() => {});
 
 function setStatus(text, kind = '') {
@@ -46,18 +45,15 @@ function setStatus(text, kind = '') {
 
 // ---------- session ----------
 async function start() {
-  if (!ui.speakerCount.reportValidity()) return;
-  const count = Number(ui.speakerCount.value);
   ui.start.disabled = true;
-  ui.speakerCount.disabled = true;
+  ui.focus.disabled = true; // the mode is fixed for a session
   setStatus('Starting…');
   stopReplay?.();
   relay.resetRecording();
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Speakers(count), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null, voice: null };
-  s.prosody.focus = ui.focus.checked;
+  const s = { prosody: new Speakers({ auto: !ui.focus.checked }), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null, voice: null };
   // Voiceprints: only the calibrated voices are captioned. Audio stays in memory (last 60 s).
   s.voiceprints = new Voiceprints({ embed, ring: new AudioRing() });
   s.voiceprints.strictness = ui.strictness.value;
@@ -70,7 +66,7 @@ async function start() {
     send: (msg) => { if (latest === s) relay.send(msg); },
     classify: (text, levels) => (emotionReady ? classify(text, levels, config.EMOTION_MIN_CONFIDENCE) : null),
     mood: () => forcedMood,
-    identify: (start, end) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end) : null),
+    identify: (start, end, live) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end, live) : null),
     onStyled: (voice) => {
       if (voiceReady) s.voiceprints.refresh(s.prosody); // learn the voiceprint from the calibration words
       if (voice) {
@@ -189,9 +185,7 @@ function stop() {
   }
   lastRecording = relay.recording.slice();
   ui.start.disabled = false;
-  ui.speakerCount.disabled = false;
-  ui.speakerNext.disabled = true;
-  ui.speakerNext.hidden = true;
+  ui.focus.disabled = false;
   ui.stop.disabled = true;
   if (!ui.status.classList.contains('err')) setStatus('Stopped');
 }
@@ -202,37 +196,23 @@ function sendCalib(s) {
   const progress = s.prosody.calibration;
   relay.send({ type: 'calib', progress });
   if (p.multi) {
-    ui.calib.textContent = p.enrolling
-      ? p.enrollmentReady
-        ? `Speaker ${p.enrollmentIndex + 1} ready. Pause, then continue.`
-        : `Speaker ${p.enrollmentIndex + 1} of ${p.profiles.length}: say “Hi, I am here to talk with everyone today” in your normal voice. Everyone else stays quiet.`
-      : `${p.profiles.length} speakers calibrated. You can take turns speaking.`;
-    ui.speakerNext.hidden = !p.enrolling;
-    ui.speakerNext.disabled = !p.enrollmentReady;
-    ui.speakerNext.textContent = p.enrollmentIndex + 1 === p.profiles.length ? 'Begin conversation' : 'Calibrate next speaker';
-    ui.speakerList.textContent = p.profiles.map((profile, i) =>
-      `Speaker ${i + 1}: ${profile.calibrated && profile.pitch ? 'ready' : `${Math.round(profile.calibration * 100)}%`}`
+    const heard = p.profiles.map((profile, i) => ({ profile, i })).filter(({ i }) => s.voiceprints.resolve(i) === i);
+    ui.calib.textContent = heard.length ? `Labeling everyone: ${heard.length} voice${heard.length > 1 ? 's' : ''} heard` : 'Labeling everyone: start talking (no calibration needed)';
+    ui.speakerList.textContent = heard.map(({ profile, i }) =>
+      `S${i + 1}: ${profile.calibrated ? `normal ${profile.ref.toFixed(0)} dBFS` : `learning loudness ${Math.round(profile.calibration * 100)}%`}`
     ).join(' · ');
     return;
   }
   ui.speakerList.textContent = '';
-  ui.speakerNext.hidden = true;
   ui.calib.textContent = progress >= 1 ? 'Calibrated to your voice' : `Learning your voice… ${Math.round(progress * 100)}%`;
 }
-
-ui.speakerNext.onclick = () => {
-  if (!session?.prosody.advance()) return;
-  session.transcript.resetCaption();
-  relay.send({ type: 'clear' }, { record: false });
-  sendCalib(session);
-};
 
 // ---------- line log ----------
 function logLine(line) {
   const row = document.createElement('div');
   row.className = `row ${line.emotion}`;
   row.dataset.line = line.line;
-  row.textContent = `[${line.emotion} ${line.confidence.toFixed(2)}] ` +
+  row.textContent = `${line.speaker ? `S${line.speaker} ` : ''}[${line.emotion} ${line.confidence.toFixed(2)}] ` +
     line.words.map((w) => (w.level === 'normal' ? w.word : `${w.word}(${w.level}${w.wdth > 100 ? ',w' + w.wdth : ''})`)).join(' ');
   const old = ui.log.querySelector(`[data-line="${line.line}"]`); // a late timestamped commit re-finalizes a line
   if (old) old.replaceWith(row);
@@ -288,12 +268,15 @@ function showLive(p) {
   const d = p.liveDelta();
   ui.dvLive.style.left = d == null ? '50%' : dvPos(d);
   ui.dvLive.style.opacity = d == null ? 0.25 : 1;
-  if (p.multi && p.enrolling) {
-    ui.dvRef.textContent = `Calibrating speaker ${p.enrollmentIndex + 1} of ${p.profiles.length}; everyone else should stay quiet.`;
+  if (p.multi) {
+    const a = p.profiles[p.activeIndex];
+    ui.dvRef.textContent = !a ? 'Labeling everyone: nobody heard yet'
+      : a.calibrated ? `S${p.activeIndex + 1} talking: their normal ${a.ref.toFixed(1)} dBFS (learned from their voice)`
+      : `S${p.activeIndex + 1} talking: learning their loudness… ${Math.round(a.calibration * 100)}%`;
   } else {
-  ui.dvRef.textContent = p.calibrated
-    ? `${p.multi ? `Speaker ${p.activeIndex + 1}` : 'Main speaker'}: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
-    : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
+    ui.dvRef.textContent = p.calibrated
+      ? `Main speaker: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
+      : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
   }
   const gate = p.gateDb();
   const snr = p.calibrated ? p.ref - p.noiseDb : null;
@@ -311,8 +294,13 @@ const thresholdsOf = (s, v) => {
 // Voiceprint status: how many voices are enrolled and the last line's verdict.
 function showVoice(s) {
   const p = s.prosody;
-  if (!p.focus) { ui.dvVoice.textContent = 'Voiceprint: off (background filter off)'; return; }
   if (!voiceReady) { ui.dvVoice.textContent = 'Voiceprint: loading model…'; return; }
+  if (p.multi) {
+    const v = s.voice;
+    ui.dvVoice.textContent = `Voiceprint: labeling everyone` + (!v ? '' : ` · last line: S${v.best + 1}${v.isNew ? ' (new voice)' : ''}`
+      + (v.reason ? ` (${v.reason})` : ` (similarity ${v.score.toFixed(2)}; same speaker ≥ ${DIARIZE.JOIN})`));
+    return;
+  }
   const n = s.voiceprints.count(p), of = p.multi ? p.profiles.length : 1;
   const v = s.voice;
   const who = (i) => (p.multi ? `speaker ${i + 1}` : 'you');
@@ -358,9 +346,9 @@ function micReport(s) {
     gateUnvoicedDb: r1(Number.isFinite(p.gateUnvoicedDb()) ? p.gateUnvoicedDb() : null),
     sensitivity: p.sensitivity,
     voiceprints: { modelReady: voiceReady, strictness: s.voiceprints.strictness, enrolled: s.voiceprints.count(p),
-      recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
+      recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, speaker: p.multi ? v.best + 1 : undefined, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
       lastLine: s.voice && { verdict: s.voice.verdict, score: Math.round(s.voice.score * 100) / 100, scores: s.voice.scores.map((x) => (x == null ? null : Math.round(x * 100) / 100)), seconds: r1(s.voice.seconds), reason: s.voice.reason } },
-    speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
+    speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, mergedInto: s.voiceprints.resolve(i) !== i ? s.voiceprints.resolve(i) + 1 : undefined, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
     words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
@@ -414,6 +402,7 @@ ui.promptHide.onclick = () => showPrompt(-1);
 ui.newJudge.onclick = () => {
   if (session) {
     session.prosody.recalibrate();
+    session.voiceprints.resetSpeakers();
     session.transcript.resetCaption();
     session.voice = null; // the voiceprint is relearned from the new calibration
     showVoice(session);
@@ -424,7 +413,6 @@ ui.newJudge.onclick = () => {
 };
 
 // ---------- controls ----------
-ui.focus.onchange = () => { if (session) session.prosody.focus = ui.focus.checked; };
 ui.strictness.onchange = () => { if (session) { session.voiceprints.strictness = ui.strictness.value; showVoice(session); } };
 ui.sensitivity.oninput = () => {
   ui.sensitivityValue.textContent = Number(ui.sensitivity.value).toFixed(1);

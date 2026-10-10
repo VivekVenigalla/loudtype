@@ -164,34 +164,45 @@ test('a line judged someone else is dropped whole by prosody, whispered words to
   assert.equal(say().background, undefined);
 });
 
-test('several speakers: each enrolls their own voiceprint, lines go to the matching one, strangers are dropped', async () => {
-  const p = new Speakers(2);
-  // Fake voiceprints for two people: 180 Hz and 140 Hz point different ways.
-  const { vp, say, word } = room(p, {
-    embed: async (audio) => {
-      const [x, y] = await fakeEmbed(audio);
-      return [x, y, 0];
-    },
-  });
-  for (let i = 0; i < CALIBRATE_WORDS; i++) say({ hz: 180, db: -30 });
-  await vp.refresh(p);
-  assert.equal(await vp.identify(p, ...word()), null); // still enrolling: nothing judged
-  assert.ok(p.advance());
-  for (let i = 0; i < CALIBRATE_WORDS; i++) say({ hz: 140, db: -32 });
-  await vp.refresh(p);
-  assert.ok(p.advance());
-  assert.equal(vp.count(p), 2);
+test('label everyone: lines cluster into speakers by voiceprint, no calibration', async () => {
+  const p = new Speakers();
+  const { vp, word } = room(p);
+  const line = async (hz, sec = 1.2) => vp.identify(p, ...word({ hz, sec, db: -30 }));
+  const a = await line(180);
+  assert.deepEqual([a.best, a.isNew], [0, true]);   // the first voice heard is S1
+  assert.equal((await line(185)).best, 0);           // same voice again
+  const b = await line(100);
+  assert.deepEqual([b.best, b.isNew], [1, true]);   // a new voice is S2
+  assert.equal((await line(178)).best, 0);
+  assert.equal((await line(102)).best, 1);
+  assert.equal(vp.speakers.length, 2);
+  assert.equal((await line(100, 0.6)).best, 1);       // short: too little to start a new speaker, stays with S2
+  p.activeIndex = 0;
+  assert.equal((await line(20, 0.6)).best, 0);        // short and unlike anyone: kept with the last speaker
+  assert.match((await vp.identify(p, ...word({ hz: 100, voicing: 0.1, db: -40, sec: 1.2 }))).reason, /whisper/);
+});
 
-  const [a, b] = word({ hz: 140, db: -32, sec: 1.2 });
-  p.voice = await vp.identify(p, a, b);
-  assert.deepEqual([p.voice.verdict, p.voice.best], ['match', 1]);
-  assert.equal(p.styleWord('w', a, b).speaker, 2);
+test('label everyone: a live (partial) check only guesses, it never adds a speaker', async () => {
+  const p = new Speakers();
+  const { vp, word } = room(p);
+  assert.equal(await vp.identify(p, ...word({ sec: 1.2 }), true), null); // nobody heard yet
+  await vp.identify(p, ...word({ sec: 1.2 }));
+  assert.equal((await vp.identify(p, ...word({ sec: 1.2 }), true)).best, 0);
+  assert.equal(await vp.identify(p, ...word({ sec: 1.2, hz: 100 }), true), null);
+  assert.equal(vp.speakers.length, 1);
+});
 
-  const [c, d] = word({ hz: 60, db: -31, sec: 1.2 });
-  p.voice = await vp.identify(p, c, d);
-  assert.equal(p.voice.verdict, 'other');
-  assert.match(p.styleWord('w', c, d).background, /no enrolled voice/);
-  p.voice = null;
+test('label everyone: two speakers whose voiceprints converge are merged; New judge forgets all', async () => {
+  const p = new Speakers();
+  const { vp, word } = room(p);
+  await vp.identify(p, ...word({ sec: 1.2, hz: 180 }));
+  await vp.identify(p, ...word({ sec: 1.2, hz: 120 }));     // far from S1: a new speaker
+  assert.equal(vp.speakers.length, 2);
+  for (let i = 0; i < 6; i++) await vp.identify(p, ...word({ sec: 1.2, hz: 150 })); // in between: S1's voiceprint drifts toward S2
+  assert.equal(vp.resolve(1), 0);
+  p.recalibrate();
+  vp.resetSpeakers();
+  assert.equal((await vp.identify(p, ...word({ sec: 1.2, hz: 100 }))).best, 0);
 });
 
 test('the voiceprint also learns from the rest of the first sentence, until it exists', async () => {

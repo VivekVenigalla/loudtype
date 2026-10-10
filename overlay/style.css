@@ -82,6 +82,22 @@ body.debug-bg {
 }
 .icon:empty { display: none; }
 
+/* Speaker label (label-everyone mode): a small neutral chip on the baseline.
+   Never colored: color means emotion. */
+.speaker {
+  align-self: baseline;
+  font-size: 0.42em;
+  font-variation-settings: 'wght' 700, 'wdth' 100;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border: 0.08em solid rgba(255, 255, 255, 0.8);
+  border-radius: 0.35em;
+  padding: 0.05em 0.35em;
+  margin-right: 0.35em;
+  letter-spacing: 0.04em;
+}
+.speaker:empty { display: none; }
+
 .w, .icon {
   display: inline-block;
   padding: 0 0.14em;   /* word spacing scales with the word, so shouts don't jam together */

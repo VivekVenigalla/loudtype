@@ -11,7 +11,8 @@
  * @typedef {WordStyle & { word: string, start?: number, end?: number, speaker?: number }} CaptionWord
  *   start/end: seconds since the session started (committed words only)
  * @typedef {{ type: 'line', line: number, final: boolean, provisional: boolean,
- *   emotion: Emotion, confidence: number, words: CaptionWord[] }} LineEvent
+ *   emotion: Emotion, confidence: number, words: CaptionWord[], speaker?: number }} LineEvent
+ *   speaker: label-everyone mode, who said the line (1-based; the overlay shows "S1")
  * @typedef {LineEvent
  *   | { type: 'calib', progress: number }
  *   | { type: 'pack', pack: string }
