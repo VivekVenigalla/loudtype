@@ -64,8 +64,9 @@ async function start() {
     // A line from an older session can still be classifying after Start; it
     // must not reach the new session's overlay, log or recording.
     send: (msg) => { if (latest === s) relay.send(msg); },
-    classify: (text, levels, tone) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE) : null),
-    mood: () => forcedMood,
+    classify: (text, levels, tone, taught) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE, taught) : null),
+    // While a "teach" card is up, the line shows the mood being taught (feedback that it was heard).
+    mood: () => forcedMood ?? teachingMood(),
     identify: (start, end, live) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end, live) : null),
     onStyled: (voice) => {
       if (voiceReady) s.voiceprints.refresh(s.prosody); // learn the voiceprint from the calibration words
@@ -78,8 +79,16 @@ async function start() {
       showWordInfo(s.prosody);
       showVoice(s);
     },
-    onFinal: (line, info) => {
+    onFinal: (line, info, tone) => {
       if (latest !== s) return;
+      const teach = PROMPTS[promptIdx]?.teach;
+      const book = s.prosody.toneBookFor(line.speaker);
+      if (teach && book.teach(teach, tone)) {
+        const who = line.speaker ? `S${line.speaker}'s` : 'your';
+        if (teach === 'neutral') setStatus(`Learned ${who} normal voice`, 'ok');
+        else if (book.isUsable(teach)) setStatus(`Learned ${who} ${teach} voice ✓ (moods it can hear now: ${book.usable.join(', ')})`, 'ok');
+        else setStatus(`That ${teach} sounded too close to ${who} normal voice. Exaggerate it and say it again.`, 'warn');
+      }
       showLineInfo(line.text, line.emotion, line.confidence, info);
       logLine(line);
     },
@@ -380,19 +389,26 @@ document.addEventListener('keydown', (e) => {
   session?.transcript.refresh();
 });
 
-// Judge prompt cards, shown on the overlay during the table demo.
+// Judge prompt cards, shown on the overlay during the table demo. Cards with
+// `teach` record how the judge's voice sounds in that mood (tone.js ToneBook):
+// afterwards their voice alone can color a line, even with neutral words.
+const SAME = '“The next round starts in two minutes.”';
 const PROMPTS = [
-  'Say hi normally: “Hi, I\'m one of the judges at Hacklanta today.”',
-  'Now whisper: “this is the best day ever”',
-  'Now SHOUT it: “THIS IS THE BEST DAY EVER!”',
-  'Hold a word as long as you can: “nooooooo”',
-  'Complain about something (traffic, Mondays, a boss fight). Say it like you mean it.',
-  'Free play: talk like a streamer.',
+  { text: 'Say hi normally: “Hi, I\'m one of the judges at Hacklanta today.”', teach: 'neutral' },
+  { text: `Teach it HAPPY: say ${SAME} like it's amazing news`, teach: 'happy' },
+  { text: `Teach it ANGRY: say ${SAME} like you're furious`, teach: 'angry' },
+  { text: `Teach it SAD: say ${SAME} like it's heartbreaking`, teach: 'sad' },
+  { text: 'Now pick a mood and say: “The meeting is at three on Tuesday.” Watch the color.' },
+  { text: 'Now whisper: “this is the best day ever”' },
+  { text: 'Now SHOUT it: “THIS IS THE BEST DAY EVER!”' },
+  { text: 'Hold a word as long as you can: “nooooooo”' },
+  { text: 'Free play: talk like a streamer.' },
 ];
 let promptIdx = -1;
+const teachingMood = () => { const t = PROMPTS[promptIdx]?.teach; return t && t !== 'neutral' ? t : null; };
 function showPrompt(i) {
   promptIdx = Math.max(-1, Math.min(PROMPTS.length - 1, i));
-  const text = promptIdx >= 0 ? PROMPTS[promptIdx] : '';
+  const text = promptIdx >= 0 ? PROMPTS[promptIdx].text : '';
   ui.prompt.textContent = text ? `${promptIdx + 1}/${PROMPTS.length}: ${text}` : '(hidden)';
   relay.send({ type: 'prompt', text, step: promptIdx + 1, of: PROMPTS.length }, { record: false });
 }

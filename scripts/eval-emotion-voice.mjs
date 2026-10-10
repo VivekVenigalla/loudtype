@@ -84,6 +84,22 @@ if (tone) {
   if (ser) systems['new: text + voice tone + voice model'] = (r) => tone.decideEmotion(r.scores, r.text, r.features, r.voiceScores, 0.7).emotion;
 }
 
+// "Teach it your tones": the speaker taught each mood with the same neutral sentence
+// (the 'tone' lines, as the prompt cards do), plus their neutral voice. Each line is
+// judged by a book built from that voice's OTHER lines (leave-one-out).
+if (tone?.ToneBook) {
+  systems['teach your tones (same voice, leave-one-out)'] = (r) => {
+    const book = new tone.ToneBook();
+    for (const o of rows) {
+      if (o === r || o.voice !== r.voice) continue;
+      if (o.group === 'neutral') book.teach('neutral', o.features);
+      if (o.group === 'tone' && o.emotion !== 'calm') book.teach(o.emotion, o.features); // the cards teach happy, angry, sad
+    }
+    const taught = book.match(r.features);
+    return taught?.confident ? taught.emotion : tone.decideEmotion(r.scores, r.text, r.features, null, 0.7).emotion;
+  };
+}
+
 if (process.argv.includes('--dump')) {
   for (const r of rows) {
     const f = r.features ? Object.entries(r.features).map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(2) : v}`).join(' ') : '';

@@ -60,6 +60,9 @@ export class Speakers extends Prosody {
     return p;
   }
 
+  /** Each speaker teaches their own moods. */
+  toneBookFor(speaker) { return this.auto ? this.profile(Math.max(0, (speaker ?? this.activeIndex + 1) - 1)).tones : this.tones; }
+
   /** Tone against the line's speaker's own normal (their profile). */
   toneOf(start, end, words, speaker) {
     if (!this.auto) return super.toneOf(start, end, words, speaker);

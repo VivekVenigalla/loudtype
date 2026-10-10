@@ -49,11 +49,11 @@ export class Transcript {
    * @param {object} deps
    * @param {import('./prosody.js').Prosody} deps.prosody
    * @param {(msg: import('./caption.js').LineEvent) => void} deps.send  caption events for the overlay
-   * @param {(text: string, levels: string[], tone?: ReturnType<import('./tone.js').toneFeatures>) => Promise<{emotion: import('./caption.js').Emotion, confidence: number}> | null} deps.classify
-   *        line emotion (tone: how the committed line sounded); returns null while the model is still loading
+   * @param {(text: string, levels: string[], tone?: ReturnType<import('./tone.js').toneFeatures>, taught?: ReturnType<import('./tone.js').ToneBook['match']>) => Promise<{emotion: import('./caption.js').Emotion, confidence: number}> | null} deps.classify
+   *        line emotion (tone: how the committed line sounded; taught: its closest mood the speaker taught); null while the model loads
    * @param {() => import('./caption.js').Emotion | null} deps.mood  mood forced by a hotkey, or null
    * @param {(voice: import('./voiceprint-core.js').Verdict | null) => void} [deps.onStyled]  a committed line's words were just measured (with its voiceprint verdict)
-   * @param {(line: object, info: object | null) => void} [deps.onFinal]  a line is finished
+   * @param {(line: object, info: object | null, tone: object | null) => void} [deps.onFinal]  a line is finished (tone: how it sounded, for teaching moods)
    * @param {(start: number, end: number, live?: boolean) => Promise<import('./voiceprint-core.js').Verdict | null> | null} [deps.identify]
    *        whose voice is in that audio (AudioContext s; live = a partial, only guess); null/omitted = no voiceprints
    * @param {() => number} [deps.clock]  ms
@@ -311,7 +311,8 @@ export class Transcript {
     const tone = timed.length && this.t0 != null && this.origin != null
       ? this.prosody.toneOf?.(this.origin + timed[0].start, this.origin + timed.at(-1).end, timed.length, speaker) ?? null
       : null;
-    const pending = this.classify(text, words.map((w) => w.level), tone);
+    const taught = tone ? this.prosody.toneBookFor?.(speaker)?.match(tone) ?? null : null;
+    const pending = this.classify(text, words.map((w) => w.level), tone, taught);
     if (pending) {
       try {
         info = await pending;
@@ -325,6 +326,6 @@ export class Transcript {
     this.send({ ...base, final: true, provisional: false, emotion, confidence: +confidence.toFixed(2) });
     const line = { line: id, text, emotion, confidence, words, ...(speaker ? { speaker } : {}) };
     if (words.every((w) => typeof w.start === 'number')) this.lines.push(line);
-    this.onFinal(line, info);
+    this.onFinal(line, info, tone);
   }
 }

@@ -26,7 +26,7 @@
 
 import { LEVELS } from './caption.js';
 import { VOICED_FRAME } from './features.js';
-import { toneFeatures } from './tone.js';
+import { toneFeatures, ToneBook } from './tone.js';
 
 // dB relative to the speaker's normal level.
 // soft/loud were ±5: normal speech wobbles up to +5.1, so ordinary words jumped size.
@@ -85,6 +85,7 @@ export class Prosody {
     this.filterWordsIndividually = false;
     /** @type {import('./voiceprint-core.js').Verdict | null} the line being styled, set by transcript.js */
     this.voice = null;
+    this.tones = new ToneBook(); // moods this speaker taught on purpose (tone.js)
   }
 
   get calibrated() { return this.ref != null; }
@@ -101,6 +102,7 @@ export class Prosody {
     this.enrollExtra = [];
     this.wordPace = [];
     this.history = [];
+    this.tones = new ToneBook();
   }
 
   /**
@@ -197,6 +199,9 @@ export class Prosody {
     }
     return null;
   }
+
+  /** The moods a speaker taught (single speaker: this one). */
+  toneBookFor(_speaker) { return this.tones; }
 
   /** How a line sounded against this speaker's normal (tone.js), or null before calibration. */
   toneOf(start, end, words, _speaker) {

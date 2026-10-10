@@ -46,3 +46,51 @@ test('before calibration there is no tone (the line falls back to its word sizes
   const p = new Prosody();
   assert.equal(p.toneOf(0, 1, 3), null);
 });
+
+// How a judge acts on the teach cards (vs. their normal voice), with a little variation per take.
+const ACT = {
+  neutral: { loud: 0, pitch: 0, range: 8, rate: 3 },
+  happy: { loud: 3, pitch: 6, range: 14, rate: 3.5 },
+  angry: { loud: 7, pitch: 2, range: 7, rate: 4 },
+  sad: { loud: -5, pitch: -3, range: 4, rate: 2 },
+};
+const take = (mood, k = 0) => Object.fromEntries(Object.entries(ACT[mood]).map(([d, v]) => [d, v + (k % 2 ? 0.4 : -0.3) * (d === 'rate' ? 0.3 : 1)]));
+
+test('teach your tones: after the cards, a neutral sentence said in a taught mood takes that mood', async () => {
+  const { ToneBook } = await import('../control/tone.js');
+  const book = new ToneBook();
+  for (const mood of ['neutral', 'happy', 'angry', 'sad']) book.teach(mood, take(mood));
+  assert.deepEqual(book.usable.sort(), ['angry', 'happy', 'sad']);
+  for (const mood of ['happy', 'angry', 'sad']) {
+    const m = book.match(take(mood, 1));
+    assert.deepEqual([m.emotion, m.confident], [mood, true], mood);
+  }
+  assert.equal(book.match(take('neutral', 1)).confident, false); // their normal voice stays to the words
+  // halfway between normal and angry: not sure, so the words decide
+  assert.equal(book.match({ loud: 3.5, pitch: 1, range: 7.5, rate: 3.5 }).confident, false);
+});
+
+test('a taught mood that sounds like their normal voice is ignored (asks to exaggerate)', async () => {
+  const { ToneBook } = await import('../control/tone.js');
+  const book = new ToneBook();
+  book.teach('neutral', take('neutral'));
+  book.teach('angry', { loud: 1, pitch: 0.5, range: 8, rate: 3.1 }); // barely acted
+  assert.equal(book.isUsable('angry'), false);
+  assert.equal(book.match({ loud: 1, pitch: 0.5, range: 8, rate: 3.1 }), null);
+  book.teach('angry', take('angry')); book.teach('angry', take('angry', 1)); // tries again, louder
+  assert.equal(book.isUsable('angry'), true);
+});
+
+test('each speaker teaches their own moods; New judge forgets them', async () => {
+  const { Speakers } = await import('../control/speakers.js');
+  const p = new Speakers();
+  p.toneBookFor(1).teach('angry', take('angry'));
+  assert.deepEqual(p.toneBookFor(1).taught, ['angry']);
+  assert.deepEqual(p.toneBookFor(2).taught, []);
+  p.recalibrate();
+  assert.deepEqual(p.toneBookFor(1).taught, []);
+  const solo = new Prosody();
+  solo.toneBookFor().teach('sad', take('sad'));
+  solo.recalibrate();
+  assert.deepEqual(solo.toneBookFor().taught, []);
+});

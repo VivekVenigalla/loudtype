@@ -28,10 +28,11 @@ Before each judge: click **New judge**. That clears the screen, forgets the last
 | 0:00–0:15 | Overlay playing the **demo clip** (whisper → shout → "nooooo" → sad line) | Nothing. Let them watch. |
 | 0:15–0:25 | | "Your voice has volume, length and feeling. Captions throw all three away. Loudtype keeps them, live." |
 | 0:25–0:35 | Click **New judge**, hand over the mic. Card 1: *"Hi, I'm one of the judges at Hacklanta today."* | "Say this normally. It's learning what *your* normal sounds like." (the calibration bar fills) |
-| 0:35–0:50 | **Next ▶** Card 2: whisper *"this is the best day ever"* | "Now whisper it." → small, light, green ● (calm) |
-| 0:50–1:05 | **Next ▶** Card 3: *SHOUT it* | "Same words. Now shout." → huge, heavy, yellow ★ (hype). **The money moment: point at it.** "Same sentence, different feeling, and the captions knew." |
-| 1:05–1:15 | **Next ▶** Card 4: hold *"nooooo"* | "Hold a word." → the word stretches wide |
-| 1:15–1:25 | **Next ▶** Card 5: complain about something | → red ▲ (angry) |
+| 0:35–0:50 | **Next ▶** Cards 2–4: *"The next round starts in two minutes"* said HAPPY, then ANGRY, then SAD (one line each) | "Teach it your moods. Ham it up." Status says "Learned your angry voice ✓", or "too close to your normal voice, exaggerate it" → have them redo that card. |
+| 0:50–1:00 | **Next ▶** Card 5: *"The meeting is at three on Tuesday"* in any mood they pick | "Boring words. Pick a mood." → it takes the color of the mood they acted. **Second money moment**: the words are neutral; only their voice changed. |
+| 1:00–1:10 | **Next ▶** Card 6: whisper *"this is the best day ever"* | "Now whisper it." → small, light, green ● (calm) |
+| 1:10–1:20 | **Next ▶** Card 7: *SHOUT it* | "Same words. Now shout." → huge, heavy, yellow ★ (hype). **The money moment: point at it.** "Same sentence, different feeling, and the captions knew." |
+| 1:20–1:30 | **Next ▶** Card 8: hold *"nooooo"* | "Hold a word." → the word stretches wide |
 | 1:25–1:40 | Turn the laptop: **Director's View** | "It compares every word to your own normal level, in decibels. A whisper is also detected because whispers have no vocal-cord vibration. The emotion model runs on this laptop; the caption text never leaves it." |
 | 1:40–1:50 | Press **3** (force angry) while talking calmly | "The streamer stays in charge: a hotkey forces a mood for a bit." Press **0** to go back to auto. |
 | 1:50–2:00 | | "Built for streamers, and Deaf and hard-of-hearing viewers finally get the tone too." |
