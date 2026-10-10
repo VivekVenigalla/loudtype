@@ -118,6 +118,27 @@ test('requests for a non-loopback Host are refused (DNS rebinding)', { skip }, a
   assert.match(viaLocalhost, /^HTTP\/1\.1 200/);
 });
 
+test('the relay only accepts pages this server served', { skip }, async () => {
+  assert.equal(await relayConnect({ origin: `http://localhost:${port}` }), 'open');
+  assert.equal(await relayConnect({ origin: `http://127.0.0.1:${port}` }), 'open');
+  for (const origin of ['https://evil.example', `http://localhost:${port + 1}`, 'null', `https://localhost:${port}`]) {
+    assert.equal(await relayConnect({ origin }), 401, origin);
+  }
+});
+
+test('the relay passes messages between pages', { skip }, async () => {
+  const origin = `http://localhost:${port}`;
+  const open = () => new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/relay`, { origin });
+    ws.on('open', () => resolve(ws));
+  });
+  const [control, overlay] = await Promise.all([open(), open()]);
+  const got = new Promise((resolve) => overlay.on('message', (d) => resolve(String(d))));
+  control.send(JSON.stringify({ type: 'clear' }));
+  assert.deepEqual(JSON.parse(await got), { type: 'clear' });
+  control.close(); overlay.close();
+});
+
 test('the relay refuses a non-loopback Host', { skip }, async () => {
   assert.equal(await relayConnect(), 'open');
   assert.equal(await relayConnect({ headers: { Host: `evil.example:${port}` } }), 401);

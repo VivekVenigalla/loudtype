@@ -82,9 +82,19 @@ const server = http.createServer((req, res) => {
 });
 
 // Relay: whatever the control panel sends goes to every other client.
+// Browsers always send Origin on WebSockets, so only pages this server served
+// (control panel, overlay) get in. Any other site could otherwise read the live
+// transcript or put words on stream. No Origin = not a browser page.
+function isOwnOrigin(origin) {
+  if (!origin) return true;
+  try {
+    const u = new URL(origin);
+    return u.protocol === 'http:' && LOOPBACK.has(u.hostname) && Number(u.port || 80) === PORT;
+  } catch { return false; }
+}
 const wss = new WebSocketServer({
   server, path: '/relay',
-  verifyClient: ({ req }) => isLoopbackHost(req.headers.host),
+  verifyClient: ({ req, origin }) => isLoopbackHost(req.headers.host) && isOwnOrigin(origin),
 });
 wss.on('error', () => {}); // listen errors are reported by server.on('error') below
 wss.on('connection', (ws) => {
