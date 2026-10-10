@@ -86,15 +86,16 @@ body.debug-bg {
    Never colored: color means emotion. */
 .speaker {
   align-self: baseline;
-  font-size: 0.42em;
-  font-variation-settings: 'wght' 700, 'wdth' 100;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-  border: 0.08em solid rgba(255, 255, 255, 0.8);
-  border-radius: 0.35em;
-  padding: 0.05em 0.35em;
-  margin-right: 0.35em;
-  letter-spacing: 0.04em;
+  font-size: 0.5em;
+  font-variation-settings: 'wght' 800, 'wdth' 110;
+  color: #111;
+  background: #fff;
+  border: 0.08em solid #111;
+  border-radius: 0.3em;
+  padding: 0.08em 0.4em 0.02em;
+  margin-right: 0.4em;
+  letter-spacing: 0.05em;
+  box-shadow: 0 0.06em 0.2em rgba(0, 0, 0, 0.6);
 }
 .speaker:empty { display: none; }
 
