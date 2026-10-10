@@ -1,0 +1,158 @@
+@font-face {
+  font-family: 'Roboto Flex';
+  src: url('/fonts/RobotoFlex.woff2') format('woff2');
+  font-weight: 100 1000;
+  font-stretch: 25% 151%;
+}
+
+:root {
+  --base: 56px;           /* normal word size */
+  --c-neutral: #ffffff;
+  --c-happy: #ffd84d;
+  --c-calm: #5be38c;
+  --c-angry: #ff4d4d;
+  --c-sad: #5aa9ff;
+}
+.colorblind {
+  /* Okabe–Ito, distinguishable for common color-vision deficiencies */
+  --c-happy: #f0e442;
+  --c-calm: #009e73;
+  --c-angry: #e66100;
+  --c-sad: #56b4e9;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;   /* OBS Browser Source composites this over the stream */
+  overflow: hidden;
+}
+body.debug-bg {
+  background: repeating-conic-gradient(#888 0 25%, #ccc 0 50%) 0 0 / 40px 40px;
+}
+
+/* ---- Studio pack: font, palette, outline only ---- */
+.pack-studio {
+  --font: 'Roboto Flex', system-ui, sans-serif;
+  --outline: 0.06em;
+  --outline-color: rgba(0, 0, 0, 0.9);
+}
+
+#stage {
+  position: absolute;
+  left: 4vw;
+  right: 4vw;
+  bottom: 6vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--font);
+}
+
+.line {
+  /* One shared baseline. Height fixed to the largest (shout) size so a shout
+     never pushes the line around; bigger words only grow upward. */
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: calc(var(--base) * var(--fit, 1));  /* --fit < 1 only for over-wide lines */
+  line-height: 1;
+  height: calc(var(--base) * 1.6 * 1.25);         /* fixed, so the baseline never moves */
+  padding-top: 0.1em;
+  box-sizing: border-box;
+  color: var(--c-neutral);
+  transition: color 200ms linear, opacity 400ms linear;
+}
+.line.fading { opacity: 0; }
+.line.happy { color: var(--c-happy); }
+.line.calm  { color: var(--c-calm); }
+.line.angry { color: var(--c-angry); }
+.line.sad   { color: var(--c-sad); }
+.line.provisional.happy { color: color-mix(in srgb, var(--c-happy) 55%, white); }
+.line.provisional.calm  { color: color-mix(in srgb, var(--c-calm) 55%, white); }
+.line.provisional.angry { color: color-mix(in srgb, var(--c-angry) 55%, white); }
+.line.provisional.sad   { color: color-mix(in srgb, var(--c-sad) 55%, white); }
+
+.icon {
+  font-size: 0.7em;
+  font-variation-settings: 'wght' 700;
+}
+.icon:empty { display: none; }
+
+.w, .icon {
+  display: inline-block;
+  padding: 0 0.14em;   /* word spacing scales with the word, so shouts don't jam together */
+  -webkit-text-stroke: var(--outline) var(--outline-color);
+  paint-order: stroke fill;
+  text-shadow: 0 0.04em 0.12em rgba(0, 0, 0, 0.85);
+  transform-origin: 50% 85%;  /* close to the baseline */
+}
+.w {
+  font-size: calc(1em * var(--size, 1));
+  font-variation-settings: 'wght' var(--wght, 450), 'wdth' var(--wdth, 100);
+  opacity: var(--op, 1);
+  /* No size transition: the only motion is the fade-in and the shout pop. */
+}
+.w.hidden { display: none; }
+
+/* Whisper: a thick outline would eat thin strokes, so use a thinner one plus a
+   soft dark halo, and open the letter spacing a touch so it stays readable. */
+.w[data-level="whisper"], .w[data-level="soft"] {
+  -webkit-text-stroke-width: calc(var(--outline) * 0.55);
+  text-shadow: 0 0 0.18em rgba(0, 0, 0, 0.9), 0 0.03em 0.08em rgba(0, 0, 0, 0.9);
+}
+.w[data-level="whisper"] { letter-spacing: 0.03em; }
+
+/* Shout: heavier outline and a hard drop shadow so it hits like a sticker. */
+.w[data-level="loud"], .w[data-level="shout"] {
+  -webkit-text-stroke-width: calc(var(--outline) * 1.3);
+  text-shadow: 0 0.05em 0 rgba(0, 0, 0, 0.9), 0 0.08em 0.2em rgba(0, 0, 0, 0.8);
+}
+.w[data-level="shout"] { letter-spacing: -0.01em; }
+.w.enter { animation: fadein 80ms linear both; }
+.w.pop { animation: fadein 80ms linear both, pop 120ms ease-out; }
+
+@keyframes fadein { from { opacity: 0; } to { opacity: var(--op, 1); } }
+@keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.08); } 100% { transform: scale(1); } }
+
+#calib {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  font: 600 16px/1.2 system-ui, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 3px #000;
+}
+#calib .bar {
+  margin-top: 6px;
+  width: 180px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#calib .fill {
+  height: 100%;
+  width: 0;
+  background: #fff;
+  transition: width 200ms linear;
+}
+
+/* Table-demo prompt card for the judge (not used on a real stream). */
+#prompt {
+  position: absolute;
+  top: 6vh;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80vw;
+  padding: 14px 24px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font: 600 28px/1.3 system-ui, sans-serif;
+  text-align: center;
+}
+#prompt .step { display: block; font-size: 14px; opacity: 0.7; letter-spacing: 0.08em; text-transform: uppercase; }

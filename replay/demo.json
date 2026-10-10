@@ -1,0 +1,1418 @@
+{
+ "events": [
+  {
+   "t": 0,
+   "msg": {
+    "type": "calib",
+    "progress": 1
+   }
+  },
+  {
+   "t": 820,
+   "msg": {
+    "type": "line",
+    "line": 1,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "okay",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 1140,
+   "msg": {
+    "type": "line",
+    "line": 1,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "okay",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "chat",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 1460,
+   "msg": {
+    "type": "line",
+    "line": 1,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "okay",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "chat",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "let's",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 1780,
+   "msg": {
+    "type": "line",
+    "line": 1,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "okay",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "chat",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "let's",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "try",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 2100,
+   "msg": {
+    "type": "line",
+    "line": 1,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "okay",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "chat",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "let's",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "try",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 2500,
+   "msg": {
+    "type": "line",
+    "line": 1,
+    "final": true,
+    "provisional": false,
+    "emotion": "neutral",
+    "confidence": 0.3,
+    "words": [
+     {
+      "word": "okay",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "chat",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "let's",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "try",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 3720,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 4040,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 4360,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 4680,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "calm",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "the",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 5000,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "calm",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "the",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "best",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 5320,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "calm",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "the",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "best",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "day",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 5640,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": false,
+    "provisional": true,
+    "emotion": "calm",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "the",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "best",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "day",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "ever",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 6040,
+   "msg": {
+    "type": "line",
+    "line": 2,
+    "final": true,
+    "provisional": false,
+    "emotion": "calm",
+    "confidence": 0.86,
+    "words": [
+     {
+      "word": "shh",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "this",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "the",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "best",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "day",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     },
+     {
+      "word": "ever",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 7260,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 7580,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "ACTUALLY",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 7900,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "ACTUALLY",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "WON",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 8220,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": false,
+    "provisional": true,
+    "emotion": "happy",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "ACTUALLY",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "WON",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 8540,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": false,
+    "provisional": true,
+    "emotion": "happy",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "ACTUALLY",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "WON",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 8860,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": false,
+    "provisional": true,
+    "emotion": "happy",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "ACTUALLY",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "WON",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "amazing",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 9260,
+   "msg": {
+    "type": "line",
+    "line": 3,
+    "final": true,
+    "provisional": false,
+    "emotion": "happy",
+    "confidence": 0.86,
+    "words": [
+     {
+      "word": "WE",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "ACTUALLY",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "WON",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "is",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "amazing",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 10480,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 11380,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "nooooo",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 151
+     }
+    ]
+   }
+  },
+  {
+   "t": 11700,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "nooooo",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 151
+     },
+     {
+      "word": "why",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 12020,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": false,
+    "provisional": true,
+    "emotion": "angry",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "nooooo",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 151
+     },
+     {
+      "word": "why",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "did",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 12340,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": false,
+    "provisional": true,
+    "emotion": "angry",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "nooooo",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 151
+     },
+     {
+      "word": "why",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "did",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 12660,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": false,
+    "provisional": true,
+    "emotion": "angry",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "nooooo",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 151
+     },
+     {
+      "word": "why",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "did",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "happen",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 13060,
+   "msg": {
+    "type": "line",
+    "line": 4,
+    "final": true,
+    "provisional": false,
+    "emotion": "angry",
+    "confidence": 0.86,
+    "words": [
+     {
+      "word": "no",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "nooooo",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 151
+     },
+     {
+      "word": "why",
+      "level": "loud",
+      "size": 1.25,
+      "wght": 700,
+      "wdth": 100
+     },
+     {
+      "word": "did",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "that",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "happen",
+      "level": "shout",
+      "size": 1.6,
+      "wght": 1000,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 14280,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 14600,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "really",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 14920,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": false,
+    "provisional": true,
+    "emotion": "neutral",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "really",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "thought",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 15240,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": false,
+    "provisional": true,
+    "emotion": "sad",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "really",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "thought",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "we",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 15560,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": false,
+    "provisional": true,
+    "emotion": "sad",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "really",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "thought",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "we",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "had",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 15880,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": false,
+    "provisional": true,
+    "emotion": "sad",
+    "confidence": 0,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "really",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "thought",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "we",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "had",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "it",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  },
+  {
+   "t": 16280,
+   "msg": {
+    "type": "line",
+    "line": 5,
+    "final": true,
+    "provisional": false,
+    "emotion": "sad",
+    "confidence": 0.86,
+    "words": [
+     {
+      "word": "I",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "really",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "thought",
+      "level": "normal",
+      "size": 1,
+      "wght": 450,
+      "wdth": 100
+     },
+     {
+      "word": "we",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "had",
+      "level": "soft",
+      "size": 0.9,
+      "wght": 350,
+      "wdth": 100
+     },
+     {
+      "word": "it",
+      "level": "whisper",
+      "size": 0.75,
+      "wght": 220,
+      "wdth": 100
+     }
+    ]
+   }
+  }
+ ]
+}

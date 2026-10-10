@@ -1,0 +1,5 @@
+node_modules/
+config.js
+.DS_Store
+# Downloaded by `npm run setup` (196 MB)
+models/

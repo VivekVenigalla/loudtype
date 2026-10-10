@@ -1,0 +1,14 @@
+{
+  "name": "loudtype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "ws": "^8.22.0"
+  }
+}
