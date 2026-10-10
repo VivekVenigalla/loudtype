@@ -26,6 +26,13 @@ const SLANG_NEG = [
   /\bugh+\b/i, /\bno+o+\b/i, /\bwhy+y\b/i, /\bwe('re| are) (dead|done)\b/i, /\bthrew\b/i,
 ];
 const SLANG_WEIGHT = 0.8;
+// Creator hype: "oh my gosh look at this" reads as SURPRISE to GoEmotions, which is
+// neither positive nor negative, so the line stayed white. Said with an energetic
+// voice and nothing negative in it, it's hype: happy.
+const HYPE = { surprise: 1, excitement: 0.5, amusement: 0.5 };
+const HYPE_MIN = 0.3;        // surprise-ish score needed
+const HYPE_ENERGY = 0.55;    // ...with at least this much voice + text energy
+const HYPE_MAX_NEG = 0.3;
 
 const sum = (m, keys) => keys.reduce((a, k) => a + (m[k] || 0), 0);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -51,11 +58,18 @@ export function decide(scores, text, voiceEnergy, minConfidence) {
   const energy = clamp(0.5 + 0.9 * (voiceEnergy - 0.5) + 0.45 * (textEnergy - 0.5), 0, 1);
 
   let emotion = 'neutral';
+  let reason = '';
   if (neu < dominant && confidence >= minConfidence) {
     const energetic = energy >= 0.5;
     emotion = pos >= neg ? (energetic ? 'happy' : 'calm') : (energetic ? 'angry' : 'sad');
   }
-  return { emotion, confidence, energy, pos, neg, neu };
+  const hype = Object.entries(HYPE).reduce((a, [k, w]) => a + w * (scores[k] || 0), 0);
+  if (emotion === 'neutral' && hype >= HYPE_MIN && energy >= HYPE_ENERGY && neg < HYPE_MAX_NEG && !slangNeg) {
+    emotion = 'happy';
+    reason = 'hype (surprise said with energy)';
+    return { emotion, confidence: Math.max(confidence, minConfidence), energy, pos, neg, neu, hype, reason };
+  }
+  return { emotion, confidence, energy, pos, neg, neu, hype, reason };
 }
 
 /** Voice energy 0..1 from per-word levels (normal speech ≈ 0.5). */

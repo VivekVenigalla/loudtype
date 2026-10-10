@@ -18,7 +18,7 @@ const ui = {
   newJudge: $('new-judge'), mood: $('mood'), prompt: $('prompt'), promptPrev: $('prompt-prev'),
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
-  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), focus: $('focus'),
+  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), dvAudio: $('dv-audio'), focus: $('focus'),
   speakerList: $('speaker-list'),
   strictness: $('strictness'), source: $('source'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
@@ -369,6 +369,22 @@ function micReport(s) {
     words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
   };
 }
+// The last 60 s the app heard (16 kHz mono WAV), saved only on click: real audio to tune emotion and speakers on.
+ui.dvAudio.onclick = () => {
+  const s = session ?? latest;
+  const ring = s?.voiceprints.ring;
+  const audio = ring?.endT != null ? ring.slice(ring.endT - 60, ring.endT) : null;
+  if (!audio?.length) return setStatus('Start listening first, then save the audio.', 'warn');
+  const data = new DataView(new ArrayBuffer(44 + audio.length * 2));
+  const str = (o, t) => [...t].forEach((c, i) => data.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); data.setUint32(4, 36 + audio.length * 2, true); str(8, 'WAVEfmt '); data.setUint32(16, 16, true);
+  data.setUint16(20, 1, true); data.setUint16(22, 1, true); data.setUint32(24, 16000, true); data.setUint32(28, 32000, true);
+  data.setUint16(32, 2, true); data.setUint16(34, 16, true); str(36, 'data'); data.setUint32(40, audio.length * 2, true);
+  audio.forEach((v, i) => data.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
+  download('loudtype-last-60s.wav', data.buffer, 'audio/wav');
+  setStatus(`Saved ${Math.round(audio.length / 16000)} s of audio to your Downloads.`, 'ok');
+};
+
 ui.dvCopy.onclick = async () => {
   const s = session ?? latest;
   if (!s) return setStatus('Start listening first, then copy the mic report.', 'warn');

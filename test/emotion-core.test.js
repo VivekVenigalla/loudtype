@@ -59,3 +59,11 @@ test('energy is clamped to 0..1', () => {
     assert.ok(energy >= 0 && energy <= 1);
   }
 });
+
+test('creator hype: surprise said with an energetic voice is happy; flat or negative is not', () => {
+  const wow = { surprise: 0.75, excitement: 0.12, neutral: 0.1 };
+  assert.equal(decide(wow, 'oh my gosh look at this', 0.8, 0.7).emotion, 'happy');
+  assert.equal(decide(wow, 'oh my gosh look at this', 0.3, 0.7).emotion, 'neutral');               // said flatly
+  assert.notEqual(decide({ ...wow, disgust: 0.5 }, 'oh my gosh look at this', 0.8, 0.7).emotion, 'happy'); // something negative in it: not hype
+  assert.equal(decide({ neutral: 0.95 }, 'this is the one dollar room', 0.9, 0.7).emotion, 'neutral'); // no surprise in it
+});

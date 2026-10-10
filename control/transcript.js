@@ -290,7 +290,8 @@ export class Transcript {
       // Labeling everyone: no timings, no voiceprint; it stays with whoever spoke last (not an unlabeled lane).
       if (this.prosody.multi) words = words.map((w) => ({ ...w, speaker: this.lastSpeaker ?? 1 }));
     }
-    this.heard.push({ heard: rawText, shown: words.map((w) => w.word).join(' '), timed: !!timedWords });
+    const report = { heard: rawText, shown: words.map((w) => w.word).join(' '), timed: !!timedWords };
+    this.heard.push(report);
     if (this.heard.length > 20) this.heard.shift();
     this.onStyled(voice);
     if (suppress) return; // enrollment phrases teach calibration, never captions or exports
@@ -319,6 +320,10 @@ export class Transcript {
         ({ emotion, confidence } = info);
       } catch (err) { console.error(err); }
     }
+    // For the mic report: why this line got its color (tuning emotion on real streams).
+    const detail = /** @type {{ energy?: number, top?: string, reason?: string } | null} */ (info);
+    report.emotion = { result: emotion, confidence: +confidence.toFixed(2), energy: detail?.energy != null ? +detail.energy.toFixed(2) : undefined, text: detail?.top, why: detail?.reason || undefined,
+      tone: tone && Object.fromEntries(Object.entries(tone).map(([k, v]) => [k, Math.round(v * 100) / 100])), taught: taught?.confident ? taught.emotion : undefined };
     if (untimed?.superseded || generation !== this.generation) return;
     const forced = this.mood();
     if (forced) { emotion = forced; confidence = 1; }
