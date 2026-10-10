@@ -60,6 +60,9 @@ export class Prosody {
     this.wordPace = [];   // ms per letter
     this.last = null;     // last committed word's measurements (Director's View)
     this.history = [];    // the last REPORT_WORDS of those (mic report)
+    this.suppressCaptions = false;
+    this.requireTimed = false;
+    this.filterWordsIndividually = false;
   }
 
   get calibrated() { return this.ref != null; }

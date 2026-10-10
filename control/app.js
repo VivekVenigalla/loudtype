@@ -1,7 +1,8 @@
 // Control panel: listens, analyzes, and tells the overlay what to draw.
 import { startAudio } from './audio.js';
 import { openScribe } from './stt.js';
-import { Prosody, THRESHOLDS } from './prosody.js';
+import { THRESHOLDS } from './prosody.js';
+import { Speakers } from './speakers.js';
 import { Transcript } from './transcript.js';
 import { classify, warmUp } from './emotion.js';
 import { Relay } from './relay.js';
@@ -16,6 +17,7 @@ const ui = {
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvCopy: $('dv-copy'), focus: $('focus'),
+  speakerCount: $('speaker-count'), speakerNext: $('speaker-next'), speakerList: $('speaker-list'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -40,14 +42,17 @@ function setStatus(text, kind = '') {
 
 // ---------- session ----------
 async function start() {
+  if (!ui.speakerCount.reportValidity()) return;
+  const count = Number(ui.speakerCount.value);
   ui.start.disabled = true;
+  ui.speakerCount.disabled = true;
   setStatus('Starting…');
   stopReplay?.();
   relay.resetRecording();
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null };
+  const s = { prosody: new Speakers(count), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null };
   s.prosody.focus = ui.focus.checked;
   s.transcript = new Transcript({
     prosody: s.prosody,
@@ -150,15 +155,42 @@ function stop() {
   }
   lastRecording = relay.recording.slice();
   ui.start.disabled = false;
+  ui.speakerCount.disabled = false;
+  ui.speakerNext.disabled = true;
   ui.stop.disabled = true;
   if (!ui.status.classList.contains('err')) setStatus('Stopped');
 }
 
 function sendCalib(s) {
+  if (session !== s) return;
+  const p = s.prosody;
   const progress = s.prosody.calibration;
   relay.send({ type: 'calib', progress });
+  if (p.multi) {
+    ui.calib.textContent = p.enrolling
+      ? p.enrollmentReady
+        ? `Speaker ${p.enrollmentIndex + 1} ready. Pause, then continue.`
+        : `Speaker ${p.enrollmentIndex + 1} of ${p.profiles.length}: say “Hi, I am here to talk with everyone today” in your normal voice. Everyone else stays quiet.`
+      : `${p.profiles.length} speakers calibrated. You can take turns speaking.`;
+    ui.speakerNext.hidden = !p.enrolling;
+    ui.speakerNext.disabled = !p.enrollmentReady;
+    ui.speakerNext.textContent = p.enrollmentIndex + 1 === p.profiles.length ? 'Begin conversation' : 'Calibrate next speaker';
+    ui.speakerList.textContent = p.profiles.map((profile, i) =>
+      `Speaker ${i + 1}: ${profile.calibrated && profile.pitch ? 'ready' : `${Math.round(profile.calibration * 100)}%`}`
+    ).join(' · ');
+    return;
+  }
+  ui.speakerList.textContent = '';
+  ui.speakerNext.hidden = true;
   ui.calib.textContent = progress >= 1 ? 'Calibrated to your voice' : `Learning your voice… ${Math.round(progress * 100)}%`;
 }
+
+ui.speakerNext.onclick = () => {
+  if (!session?.prosody.advance()) return;
+  session.transcript.resetCaption();
+  relay.send({ type: 'clear' }, { record: false });
+  sendCalib(session);
+};
 
 // ---------- line log ----------
 function logLine(line) {
@@ -216,9 +248,13 @@ function showLive(p) {
   const d = p.liveDelta();
   ui.dvLive.style.left = d == null ? '50%' : dvPos(d);
   ui.dvLive.style.opacity = d == null ? 0.25 : 1;
+  if (p.multi && p.enrolling) {
+    ui.dvRef.textContent = `Calibrating speaker ${p.enrollmentIndex + 1} of ${p.profiles.length}; everyone else should stay quiet.`;
+  } else {
   ui.dvRef.textContent = p.calibrated
-    ? `Main speaker: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
+    ? `${p.multi ? `Speaker ${p.activeIndex + 1}` : 'Main speaker'}: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
     : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
+  }
   const gate = p.gateDb();
   ui.dvRoom.textContent = `Room noise: ${p.noiseDb.toFixed(1)} dBFS · ` + (gate === -Infinity
     ? 'background filter off: speech-to-text hears everything'
@@ -259,9 +295,10 @@ function micReport(s) {
     chromeApplied: { autoGainControl: mic.autoGainControl, noiseSuppression: mic.noiseSuppression, echoCancellation: mic.echoCancellation, sampleRate: mic.sampleRate },
     calibrated: p.calibrated, normalDb: r1(p.ref), pitchHz: p.pitch && Math.round(p.pitch), noiseFloorDb: r1(p.noiseDb), thresholds: THRESHOLDS,
     ignoreBackground: p.focus, gateDb: r1(Number.isFinite(p.gateDb()) ? p.gateDb() : null),
+    speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
-    words: p.history.map((w) => ({ word: w.word, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
+    words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
   };
 }
 ui.dvCopy.onclick = async () => {
@@ -312,6 +349,7 @@ ui.promptHide.onclick = () => showPrompt(-1);
 ui.newJudge.onclick = () => {
   if (session) {
     session.prosody.recalibrate();
+    session.transcript.resetCaption();
     sendCalib(session);
   }
   relay.send({ type: 'clear' }, { record: false });

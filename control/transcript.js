@@ -44,6 +44,16 @@ export class Transcript {
     this.lags = [];          // measured partial delays (s)
     this.lines = [];         // finished lines with word timings, for export (memory only)
     this.closed = false;
+    this.generation = 0;
+  }
+
+  /** Discard a calibration step's pending text, keeping the audio/session clock. */
+  resetCaption() {
+    this.generation++;
+    clearTimeout(this.pendingCommit);
+    this.current = null;
+    this.untimed = null;
+    this.lastFinal = { text: '', at: 0 };
   }
 
   close() {
@@ -113,6 +123,7 @@ export class Transcript {
   }
 
   emitPartial(cur) {
+    if (this.prosody.suppressCaptions || (this.prosody.requireTimed && this.prosody.focus)) return;
     this.send({
       type: 'line', line: cur.id, final: false, provisional: true,
       emotion: this.mood() ?? cur.provisional, confidence: 0,
@@ -145,6 +156,8 @@ export class Transcript {
   }
 
   async finalize(text, timedWords, late = null) {
+    const suppress = this.prosody.suppressCaptions;
+    const generation = this.generation;
     // A late upgrade belongs to an earlier line: leave the line being spoken alone.
     const cur = late ? null : this.current;
     const id = late?.id ?? cur?.id ?? ++this.lineSeq;
@@ -172,15 +185,16 @@ export class Transcript {
         start: w.start + shift, end: w.end + shift,
       })).filter((w) => w.word);
       // Words someone else said near the mic (prosody marks them) are dropped.
-      // Scribe ends a line at each pause, so a line is one person's: if most
-      // of it is someone else, all of it is (catches their borderline words).
+      // Single-speaker mode drops mostly-background lines. Multiple speakers
+      // can change turns inside a commit, so keep each individually matched word.
       const others = styled.filter((w) => w.background).length;
-      words = others * 2 > styled.length ? [] : styled.filter((w) => !w.background);
+      words = !this.prosody.filterWordsIndividually && others * 2 > styled.length ? [] : styled.filter((w) => !w.background);
       if (words.length < styled.length) text = words.map((w) => w.word).join(' ');
     } else {
-      words = splitWords(text).map(plainWord); // no timing: unstyled, not exportable
+      words = this.prosody.requireTimed ? [] : splitWords(text).map(plainWord);
     }
     this.onStyled();
+    if (suppress) return; // enrollment phrases teach calibration, never captions or exports
     if (!words.length) { // all someone else: take the line off screen, caption nothing
       this.send({ type: 'line', line: id, final: true, provisional: false, emotion: 'neutral', confidence: 0, words: [] });
       return;
@@ -199,7 +213,7 @@ export class Transcript {
         ({ emotion, confidence } = info);
       } catch (err) { console.error(err); }
     }
-    if (untimed?.superseded) return; // the timestamped version took over this line
+    if (untimed?.superseded || generation !== this.generation) return;
     const forced = this.mood();
     if (forced) { emotion = forced; confidence = 1; }
     if (untimed) untimed.emotion = emotion;

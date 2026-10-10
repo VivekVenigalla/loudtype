@@ -15,6 +15,7 @@
     "control/caption.js",
     "control/transcript.js",
     "control/prosody.js",
+    "control/speakers.js",
     "control/emotion-core.js",
     "control/features.js",
     "control/export.js",

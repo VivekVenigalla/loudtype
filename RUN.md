@@ -15,3 +15,21 @@ npm start
 Not built yet: sync mode, stream-safe censoring (`STREAM_SAFE` does nothing), Arcade/Ink packs.
 
 Tests: `npm test` (no network; starts its own server on a free port).
+
+## Multiple speakers
+
+Choose **Speakers** (1–32) before Start. With more than one, each person says
+the displayed sentence normally while everyone else stays quiet. Keep the mic
+and each participant in the position they will use during the conversation.
+Wait for **ready**, pause, and click **Calibrate next speaker**. After the last
+person, click **Begin conversation**. Calibration phrases are not captioned or
+exported. **Recalibrate all speakers** restarts enrollment; Stop → Start creates
+a fresh session. All profiles stay in memory.
+
+Use a shared mic and speak in turns. Each matched participant has their own
+loudness and held-word reference. Background filtering uses approximate pitch
+and volume matching, not voice identification: similar voices, whispers, and
+pitch changes can cause false matches or missed words. Simultaneous speech is
+not supported. In filtered multi-speaker mode captions wait for word timestamps;
+untimed lines are dropped. Speaker colors/brackets and new emotion animations
+are not included in this stage.

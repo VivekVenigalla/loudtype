@@ -31,19 +31,23 @@
     (<a href="/overlay/?bg" target="_blank">open with test background</a>)</div>
 
   <section>
+    <label>Speakers: <input id="speaker-count" type="number" min="1" max="32" step="1" value="1" required style="width:70px"></label>
     <button id="start">Start</button>
     <button id="stop" disabled>Stop</button>
     <span id="status">Idle</span>
     <div class="meter"><div id="meter-fill"></div></div>
     <div id="calib"></div>
+    <div id="speaker-list" aria-live="polite"></div>
+    <button id="speaker-next" hidden disabled>Calibrate next speaker</button>
     <div id="mood">Mood: automatic</div>
-    <label><input type="checkbox" id="focus" checked> Ignore background: caption only the main speaker (the voice it calibrated on), not chatter, people nearby or noise</label><br>
+    <label><input type="checkbox" id="focus" checked> Ignore background: filter speech against the calibrated speaker(s)</label><br>
+    <small>For multiple speakers, calibrate one at a time from where each person will talk. Use a shared mic and take turns. Matching uses pitch and volume; similar voices and whispers may pass the filter. Overlapping speech is not supported. Captions wait for word timings when filtering multiple speakers.</small><br>
     <small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 0 automatic</small>
   </section>
 
   <section>
     <strong>Table demo</strong>
-    <button id="new-judge">New judge (recalibrate + prompts)</button>
+    <button id="new-judge">Recalibrate all speakers + prompts</button>
     <button id="prompt-prev">◀</button><button id="prompt-next">Next prompt ▶</button><button id="prompt-hide">Hide prompt</button>
     <div>Showing on overlay: <span id="prompt">(hidden)</span></div>
   </section>

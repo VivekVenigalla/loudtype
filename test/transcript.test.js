@@ -34,6 +34,23 @@ const timed = (text, start = 1) => ({
 });
 const lastLine = () => sent.filter((m) => m.type === 'line').at(-1);
 
+test('resetCaption cancels old classification and preserves clocks and finished lines', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  await tr.committedTimed(timed('first'));
+  let resolve;
+  tr.classify = () => new Promise((r) => { resolve = r; });
+  const pending = tr.committedTimed(timed('stale'));
+  tr.resetCaption();
+  const count = sent.length;
+  resolve({ emotion: 'happy', confidence: 0.9 });
+  await pending;
+  assert.equal(sent.length, count);
+  assert.deepEqual(tr.lines.map((l) => l.text), ['first']);
+  assert.equal(tr.t0, 10);
+  assert.equal(tr.origin, 10);
+});
+
 beforeEach(() => {
   sent = []; finals = []; liveLevel = 'normal'; wordLevel = () => 'normal';
   classifyResult = null; mood = null; clockMs = 0; styledCount = 0; classifyCalls = 0;

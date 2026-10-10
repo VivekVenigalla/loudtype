@@ -8,7 +8,7 @@
  * @typedef {'neutral' | 'happy' | 'calm' | 'angry' | 'sad'} Emotion
  * @typedef {{ size: number, wght: number }} LevelStyle
  * @typedef {{ level: Level, size: number, wght: number, wdth: number }} WordStyle
- * @typedef {WordStyle & { word: string, start?: number, end?: number }} CaptionWord
+ * @typedef {WordStyle & { word: string, start?: number, end?: number, speaker?: number }} CaptionWord
  *   start/end: seconds since the session started (committed words only)
  * @typedef {{ type: 'line', line: number, final: boolean, provisional: boolean,
  *   emotion: Emotion, confidence: number, words: CaptionWord[] }} LineEvent
