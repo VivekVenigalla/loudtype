@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
@@ -23,9 +23,12 @@ const freePort = () => new Promise((resolve) => {
 function get(path) {
   return new Promise((resolve, reject) => {
     http.get({ host: '127.0.0.1', port, path }, (res) => {
-      let body = '';
-      res.on('data', (d) => { body += d; });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+      const chunks = [];
+      res.on('data', (d) => chunks.push(d));
+      res.on('end', () => {
+        const bytes = Buffer.concat(chunks);
+        resolve({ status: res.statusCode, headers: res.headers, bytes, body: bytes.toString() });
+      });
     }).on('error', reject);
   });
 }
@@ -74,6 +77,23 @@ test('serves the control panel and redirects the root', { skip }, async () => {
   assert.equal(page.status, 200);
   assert.match(page.headers['content-type'], /text\/html/);
   assert.equal((await get('/')).status, 302);
+});
+
+test('files arrive byte-for-byte with their length and type', { skip }, async () => {
+  const root = dirname(SERVER);
+  for (const [path, file, type] of [
+    ['/control/index.html', 'control/index.html', /text\/html/],
+    ['/fonts/RobotoFlex.woff2', 'fonts/RobotoFlex.woff2', /font\/woff2/],
+    ['/overlay/', 'overlay/index.html', /text\/html/],
+  ]) {
+    const res = await get(path);
+    const want = readFileSync(join(root, file));
+    assert.equal(res.status, 200, path);
+    assert.match(res.headers['content-type'], type, path);
+    assert.equal(Number(res.headers['content-length']), want.length, path);
+    assert.ok(res.bytes.equals(want), path);
+  }
+  assert.equal((await get('/models/')).status, 404); // a folder without index.html
 });
 
 test('/config never includes the API key', { skip }, async () => {

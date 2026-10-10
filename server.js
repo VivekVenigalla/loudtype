@@ -1,7 +1,8 @@
 // Loudtype local server: static files, ElevenLabs token minting, and a
 // localhost-only caption relay. Stores nothing.
 import http from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -64,12 +65,20 @@ async function handle(req, res) {
   }
   let file = resolvePath(url.pathname);
   if (!file) return send(res, 404, 'Not found');
+  let info;
   try {
-    if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
-    send(res, 200, await readFile(file), TYPES[extname(file)] || 'application/octet-stream');
+    info = await stat(file);
+    if (info.isDirectory()) info = await stat(file = join(file, 'index.html'));
   } catch {
-    send(res, 404, 'Not found');
+    return send(res, 404, 'Not found');
   }
+  // Stream instead of reading whole files: the emotion model alone is 125 MB.
+  res.writeHead(200, {
+    'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
+    'Content-Length': info.size,
+    'Cache-Control': 'no-store',
+  });
+  createReadStream(file).on('error', () => res.destroy()).pipe(res);
 }
 
 // A malformed request (bad URL or Host header) must never take the server down mid-stream.
