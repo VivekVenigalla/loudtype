@@ -5,7 +5,7 @@
 // (control/tone.js) and an optional on-device speech-emotion model.
 // Tuning uses voice A (even clips); voice B (odd clips) is held out.
 // Usage: node scripts/eval-emotion-voice.mjs [--dump]
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = new URL('..', import.meta.url);
@@ -23,7 +23,10 @@ const DIR = fileURLToPath(new URL('eval-data/emotion/', ROOT));
 const manifest = JSON.parse(readFileSync(DIR + 'manifest.json', 'utf8'));
 const text = await T.pipeline('text-classification', EMOTION_MODEL, { dtype: 'q8' });
 const SER_MODEL = 'onnx-community/wav2vec2-base-superb-er-ONNX';
-const ser = await T.pipeline('audio-classification', SER_MODEL, { dtype: 'q4' }).catch((e) => { console.log('no voice-emotion model:', e.message); return null; });
+// Optional, only if downloaded into models/ (tried 2026-10-10: 9/36 alone, no gain; not part of setup).
+const ser = existsSync(fileURLToPath(new URL(`models/${SER_MODEL}/config.json`, ROOT)))
+  ? await T.pipeline('audio-classification', SER_MODEL, { dtype: 'q4' })
+  : null;
 
 const RATE = 16000, FRAME = Math.round(RATE * 0.033);
 const load = (f) => { const b = readFileSync(DIR + f); const x = new Float32Array(b.length / 2); for (let i = 0; i < x.length; i++) x[i] = b.readInt16LE(i * 2) / 32768; return x; };
@@ -74,8 +77,8 @@ for (const [i, m] of manifest.entries()) {
 
 const systems = {
   'current (text + loudness levels)': (r) => decide(r.scores, r.text, voiceEnergy(r.levels), 0.7).emotion,
-  'voice model alone': (r) => (r.voiceScores ? { neu: 'neutral', hap: 'happy', ang: 'angry', sad: 'sad' }[Object.entries(r.voiceScores).sort((a, b) => b[1] - a[1])[0][0]] : 'n/a'),
 };
+if (ser) systems['voice model alone'] = (r) => ({ neu: 'neutral', hap: 'happy', ang: 'angry', sad: 'sad' })[Object.entries(r.voiceScores).sort((a, b) => b[1] - a[1])[0][0]];
 if (tone) {
   systems['new: text + voice tone'] = (r) => tone.decideEmotion(r.scores, r.text, r.features, null, 0.7).emotion;
   if (ser) systems['new: text + voice tone + voice model'] = (r) => tone.decideEmotion(r.scores, r.text, r.features, r.voiceScores, 0.7).emotion;
