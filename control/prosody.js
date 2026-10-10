@@ -23,6 +23,8 @@ import { LEVELS } from './caption.js';
 // dB relative to the speaker's normal level.
 export const THRESHOLDS = { whisper: -10, soft: -5, loud: 5, shout: 8 }; // shout was +10: AirPods cap shouts at +8..+10
 export const CALIBRATE_WORDS = 6;
+const CALIB_CLUSTER_DB = 8;   // calibration learns the loudest voice: words this far under it are someone farther away
+const CALIB_KEEP = 24;        // most recent calibration words kept
 const UNVOICED_SHARE = 0.3;   // below this share of voiced frames → whisper
 const VOICED_FRAME = 0.45;    // frame voicing at/above this counts as voiced
 const WHISPER_MAX_DB = 4;     // an unvoiced word louder than normal+4 isn't a whisper
@@ -53,6 +55,7 @@ export class Prosody {
     this.noiseDb = NOISE_FLOOR_MIN_DB;
     this.recentDbs = [];
     this.ref = null;      // speaker's normal word loudness (dB), null until calibrated
+    this.calibWords = []; // { db, pitch } of the voiced words calibration is learning from
     this.calibDbs = [];
     this.pitch = null;    // main speaker's typical pitch (Hz), learned with `ref`; null if unknown
     this.calibPitches = [];
@@ -70,6 +73,7 @@ export class Prosody {
 
   recalibrate() {
     this.ref = null;
+    this.calibWords = [];
     this.calibDbs = [];
     this.pitch = null;
     this.calibPitches = [];
@@ -185,6 +189,43 @@ export class Prosody {
     if (this.history.length > REPORT_WORDS) this.history.shift();
   }
 
+  /**
+   * Calibration step for one measured word. The person calibrating is next to
+   * the mic, so the loudest voice heard is theirs: words more than 8 dB under
+   * the loudest so far (chatter Scribe picked up before they spoke) are
+   * dropped. `ref`/`pitch` are set once 6 voiced words agree, and unset again
+   * if a louder voice takes over (only possible while calibration is running).
+   */
+  learn(st) {
+    if (st.voiced < UNVOICED_SHARE) return; // whispers don't show the normal voice
+    this.calibWords.push({ db: st.db, pitch: st.pitch });
+    const top = Math.max(...this.calibWords.map((w) => w.db));
+    this.calibWords = this.calibWords.filter((w) => w.db >= top - CALIB_CLUSTER_DB).slice(-CALIB_KEEP);
+    this.calibDbs = this.calibWords.map((w) => w.db);
+    this.calibPitches = this.calibWords.map((w) => w.pitch).filter((x) => x > 0);
+    const ready = this.calibDbs.length >= CALIBRATE_WORDS;
+    this.ref = ready ? quantile([...this.calibDbs].sort((a, b) => a - b), 0.5) : null;
+    this.pitch = ready && this.calibPitches.length >= 3 ? quantile([...this.calibPitches].sort((a, b) => a - b), 0.5) : null;
+  }
+
+  /** Held-word width from ms per letter vs. this speaker's usual pace (and learn that pace). */
+  widthFor(text, start, end) {
+    let wdth = 100;
+    const letters = (text.match(/[\p{L}\p{N}]/gu) || []).length;
+    if (letters && end > start) {
+      const pace = ((end - start) * 1000) / letters;
+      if (this.wordPace.length >= CALIBRATE_WORDS) {
+        const ratio = pace / quantile([...this.wordPace].sort((a, b) => a - b), 0.5);
+        if (ratio > HOLD_RATIO) {
+          wdth = Math.round(100 + (WDTH_MAX - 100) * clamp((ratio - HOLD_RATIO) / (HOLD_MAX_RATIO - HOLD_RATIO), 0, 1));
+        }
+      }
+      this.wordPace.push(pace);
+      if (this.wordPace.length > WORD_HISTORY) this.wordPace.shift();
+    }
+    return wdth;
+  }
+
   /** Style one committed word. start/end are AudioContext seconds. */
   styleWord(text, start, end) {
     const st = this.stats(start, end);
@@ -207,15 +248,7 @@ export class Prosody {
 
     if (st && !silent) {
       if (!this.calibrated) {
-        // Learn "normal" only from voiced words, so an early whisper doesn't skew it.
-        if (st.voiced >= UNVOICED_SHARE) {
-          this.calibDbs.push(st.db);
-          if (st.pitch) this.calibPitches.push(st.pitch);
-        }
-        if (this.calibDbs.length >= CALIBRATE_WORDS) {
-          this.ref = quantile([...this.calibDbs].sort((a, b) => a - b), 0.5);
-          this.pitch = this.calibPitches.length >= 3 ? quantile([...this.calibPitches].sort((a, b) => a - b), 0.5) : null;
-        }
+        this.learn(st);
       } else if (level === 'normal') {
         this.ref += (st.db - this.ref) * TRACK_RATE; // follow slow mic/posture changes
         if (st.pitch && this.pitch) this.pitch *= (st.pitch / this.pitch) ** TRACK_RATE;
@@ -223,21 +256,7 @@ export class Prosody {
       this.remember(measured({ level, delta: this.ref != null ? st.db - this.ref : null }));
     }
 
-    let wdth = 100;
-    const letters = (text.match(/[\p{L}\p{N}]/gu) || []).length;
-    if (letters && end > start) {
-      const pace = ((end - start) * 1000) / letters;
-      if (this.wordPace.length >= CALIBRATE_WORDS) {
-        const ratio = pace / quantile([...this.wordPace].sort((a, b) => a - b), 0.5);
-        if (ratio > HOLD_RATIO) {
-          wdth = Math.round(100 + (WDTH_MAX - 100) * clamp((ratio - HOLD_RATIO) / (HOLD_MAX_RATIO - HOLD_RATIO), 0, 1));
-        }
-      }
-      this.wordPace.push(pace);
-      if (this.wordPace.length > WORD_HISTORY) this.wordPace.shift();
-    }
-
-    return { level, ...LEVELS[level], wdth };
+    return { level, ...LEVELS[level], wdth: this.widthFor(text, start, end) };
   }
 }
 

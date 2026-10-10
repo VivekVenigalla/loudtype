@@ -23,10 +23,10 @@ the displayed sentence normally while everyone else stays quiet. Keep the mic
 and each participant in the position they will use during the conversation.
 Wait for **ready**, pause, and click **Calibrate next speaker**. After the last
 person, click **Begin conversation**. Calibration phrases are not captioned or
-exported. **Recalibrate all speakers** restarts enrollment; Stop → Start creates
+exported. **New judge** recalibrates all speakers (restarts enrollment); Stop → Start creates
 a fresh session. All profiles stay in memory.
 
-Use a shared mic and speak in turns. Each matched participant has their own
+Use a shared mic and speak in turns. A speaker's pitch may rise when they shout; louder words allow for that. Each matched participant has their own
 loudness and held-word reference. Background filtering uses approximate pitch
 and volume matching, not voice identification: similar voices, whispers, and
 pitch changes can cause false matches or missed words. Simultaneous speech is

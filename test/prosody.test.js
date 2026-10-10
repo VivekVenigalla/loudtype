@@ -252,3 +252,12 @@ test('the main speaker\'s pitch slowly follows them', () => {
   for (let i = 0; i < 10; i++) say('word', { pitch: 190 });
   assert.ok(p.pitch > HER && p.pitch < 190);
 });
+
+test('calibration learns the loudest voice, not chatter picked up before the speaker talked', () => {
+  const { p, say } = speaker();
+  for (let i = 0; i < 4; i++) say('chatter', { db: NORMAL - 22, pitch: 150 });
+  assert.equal(p.calibrated, false);
+  for (let i = 0; i < CALIBRATE_WORDS; i++) say('hello', { pitch: 180 });
+  assert.ok(Math.abs(p.ref - NORMAL) < 0.01);
+  assert.equal(p.pitch, 180);
+});

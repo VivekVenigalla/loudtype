@@ -157,6 +157,7 @@ function stop() {
   ui.start.disabled = false;
   ui.speakerCount.disabled = false;
   ui.speakerNext.disabled = true;
+  ui.speakerNext.hidden = true;
   ui.stop.disabled = true;
   if (!ui.status.classList.contains('err')) setStatus('Stopped');
 }

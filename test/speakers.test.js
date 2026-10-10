@@ -156,3 +156,53 @@ test('a reconnect during enrollment preserves profiles and resumes the current s
   assert.equal(p.profiles[0].pitch, 110);
   assert.equal(p.profiles[1].pitch, 240);
 });
+
+// ---------- review fixes ----------
+test('a speaker shouting with a raised pitch is still that speaker (shouting raises pitch)', () => {
+  const { say, ready } = scene();
+  ready();
+  // speaker 1 (110 Hz, -25 dB) shouts: +12 dB, pitch up 9 semitones
+  const shout = say(-13, 110 * 2 ** (9 / 12));
+  assert.equal(shout.background, undefined);
+  assert.equal(shout.speaker, 1);
+  assert.equal(shout.level, 'shout');
+  // ...but a quieter voice at that pitch is still nobody enrolled
+  assert.ok(say(-24, 110 * 2 ** (9 / 12)).background);
+});
+
+test('with the filter off, words timed onto a pause are kept, not dropped', () => {
+  const { p, say, ready } = scene();
+  ready();
+  p.focus = false;
+  const w = say(-60, 0, 0);
+  assert.equal(w.background, undefined);
+});
+
+test('with the filter off, untimed lines are captioned plainly', async () => {
+  const { p, ready } = scene();
+  ready();
+  p.focus = false;
+  const sent = [], tr = new Transcript({ prosody: p, send: (m) => sent.push(m), classify: () => null, mood: () => null });
+  await tr.finalize('no timestamps here', null);
+  assert.deepEqual(sent.at(-1).words.map((w) => w.word), ['no', 'timestamps', 'here']);
+});
+
+test('chatter transcribed before the first person speaks cannot become their profile', () => {
+  const { p, say } = scene();
+  for (let i = 0; i < 4; i++) say(-43, 150); // "How was your drive today?" from the next table
+  for (let i = 0; i < 6; i++) say(-20, 112); // speaker 1 next to the mic
+  assert.equal(p.enrollmentReady, true);
+  assert.ok(Math.abs(p.profiles[0].ref - -20) < 0.01);
+  assert.equal(p.profiles[0].pitch, 112);
+});
+
+test('if chatter made a speaker look ready, their own (louder) words take over before the handoff', () => {
+  const { p, say } = scene();
+  for (let i = 0; i < 6; i++) say(-43, 150);
+  assert.equal(p.enrollmentReady, true); // looks ready on chatter alone...
+  say(-20, 112);
+  assert.equal(p.enrollmentReady, false); // ...until the real speaker talks
+  for (let i = 0; i < 5; i++) say(-20, 112);
+  assert.equal(p.enrollmentReady, true);
+  assert.ok(Math.abs(p.profiles[0].ref - -20) < 0.01);
+});

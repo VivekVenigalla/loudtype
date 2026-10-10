@@ -1,7 +1,12 @@
 // Session-only acoustic profiles. Pitch and level are heuristics, not voiceprints:
 // similar voices, unvoiced words and overlapping speech cannot be identified reliably.
-import { Prosody } from './prosody.js';
+import { Prosody, THRESHOLDS } from './prosody.js';
 import { LEVELS } from './caption.js';
+
+// Shouting raises pitch: past the loud threshold, expect ~0.5 semitone more per dB (up to 8).
+const RISE_PER_DB = 0.5;
+const RISE_MAX_ST = 8;
+const expectedRise = (d) => Math.min(RISE_MAX_ST, Math.max(0, d - THRESHOLDS.loud) * RISE_PER_DB);
 
 const plain = () => ({ level: /** @type {const} */ ('normal'), ...LEVELS.normal, wdth: 100 });
 
@@ -51,15 +56,18 @@ export class Speakers extends Prosody {
 
   /** Closest plausible calibrated profile. Unknown voiced speech is rejected. */
   match(st) {
-    if (!st || (!st.speech && st.db < this.noiseDb + 3)) return null;
+    if (!st) return null;
+    // Timed onto a pause: no voice to identify. Filtering: drop it; filter off: keep it.
+    if (!st.speech && st.db < this.noiseDb + 3) return this.focus ? null : this.activeIndex;
     // No pitch in whispers/consonants: retain continuity, without claiming identity.
     if (st.voiced < 0.5 || !st.pitch) return this.activeIndex;
     let best = null, distance = Infinity;
     this.profiles.forEach((p, i) => {
       if (!p.calibrated || !p.pitch) return;
-      const semis = 12 * Math.log2(st.pitch / p.pitch);
-      if (this.focus && (st.db < p.ref - 12 || semis < -5 || semis > 7)) return;
-      const score = Math.abs(semis) + Math.abs(st.db - p.ref) / 12;
+      const d = st.db - p.ref;
+      const semis = 12 * Math.log2(st.pitch / p.pitch) - expectedRise(d); // vs. their pitch at this loudness
+      if (this.focus && (d < -12 || semis < -5 || semis > 7)) return;
+      const score = Math.abs(semis) + Math.abs(d) / 12;
       if (score < distance) { best = i; distance = score; }
     });
     return best;
@@ -98,18 +106,21 @@ export class Speakers extends Prosody {
     p.frames = this.frames;
     p.noiseDb = this.noiseDb;
     p.focus = false; // matching above already checked every enrolled profile
-    // Freeze enrollment once ready; the rest of that phrase is still speaker N.
-    if (this.enrolling && this.enrollmentReady) return plain();
-    const style = p.styleWord(text, start, end);
-    // Continue learning pitch if the first six voiced words lacked enough pitch measurements.
-    if (this.enrolling && p.calibrated && !p.pitch && st?.speech && st.pitch && st.voiced >= 0.5) {
-      p.calibPitches.push(st.pitch);
-      if (p.calibPitches.length >= 3) p.pitch = [...p.calibPitches].sort((a, b) => a - b)[Math.floor(p.calibPitches.length / 2)];
+    if (this.enrolling) {
+      // Keep learning until the handoff click: the loudest voice wins (learn()),
+      // so chatter transcribed before the person spoke can't become their profile.
+      if (st && !(!st.speech && st.db < this.noiseDb + 3)) p.learn(st);
+      p.widthFor(text, start, end); // their speaking pace, for held words later
+      this.ref = p.ref;
+      this.pitch = p.pitch;
+      this.remember({ word: text, ...st, level: 'normal', delta: null, speaker: index + 1 });
+      return { ...plain(), speaker: index + 1 };
     }
+    const style = p.styleWord(text, start, end);
     this.activeIndex = index;
     this.ref = p.ref;
     this.pitch = p.pitch;
-    if (p.last) this.remember({ ...p.last, speaker: index + 1 });
+    if (st && p.last) this.remember({ ...p.last, speaker: index + 1 }); // no frames → nothing new measured
     return { ...style, speaker: index + 1 };
   }
 }

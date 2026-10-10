@@ -191,7 +191,8 @@ export class Transcript {
       words = !this.prosody.filterWordsIndividually && others * 2 > styled.length ? [] : styled.filter((w) => !w.background);
       if (words.length < styled.length) text = words.map((w) => w.word).join(' ');
     } else {
-      words = this.prosody.requireTimed ? [] : splitWords(text).map(plainWord);
+      // Filtered multi-speaker lines need timings to tell speakers apart; otherwise plain words.
+      words = this.prosody.requireTimed && this.prosody.focus ? [] : splitWords(text).map(plainWord);
     }
     this.onStyled();
     if (suppress) return; // enrollment phrases teach calibration, never captions or exports
