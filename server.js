@@ -47,7 +47,14 @@ function send(res, code, body, type = 'text/plain') {
   res.end(body);
 }
 
+// Only answer requests addressed to this machine by a loopback name. Blocks DNS
+// rebinding, where an outside site's domain is pointed at 127.0.0.1 so the
+// browser treats this server as that site and lets it read /token.
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+const isLoopbackHost = (host = '') => LOOPBACK.has(host.toLowerCase().replace(/:\d+$/, ''));
+
 async function handle(req, res) {
+  if (!isLoopbackHost(req.headers.host)) return send(res, 403, 'Forbidden: unknown host');
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === '/') return res.writeHead(302, { Location: '/control/' }).end();
   if (url.pathname === '/token') return mintToken(res);
@@ -75,7 +82,10 @@ const server = http.createServer((req, res) => {
 });
 
 // Relay: whatever the control panel sends goes to every other client.
-const wss = new WebSocketServer({ server, path: '/relay' });
+const wss = new WebSocketServer({
+  server, path: '/relay',
+  verifyClient: ({ req }) => isLoopbackHost(req.headers.host),
+});
 wss.on('error', () => {}); // listen errors are reported by server.on('error') below
 wss.on('connection', (ws) => {
   ws.on('message', (data) => {

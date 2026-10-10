@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import net from 'node:net';
+import WebSocket from 'ws';
 
 // LOUDTYPE_SERVER points the test at another copy (used to check it fails on the old server).
 const SERVER = process.env.LOUDTYPE_SERVER || fileURLToPath(new URL('../server.js', import.meta.url));
@@ -37,6 +38,16 @@ function raw(text) {
     s.on('data', (d) => { buf += d; });
     s.on('end', () => resolve(buf));
     s.on('error', reject);
+  });
+}
+
+// Resolves 'open', or the HTTP status the server refused the upgrade with.
+function relayConnect(options = {}) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/relay`, options);
+    ws.on('open', () => { ws.close(); resolve('open'); });
+    ws.on('unexpected-response', (_req, res) => { resolve(res.statusCode); ws.terminate(); });
+    ws.on('error', (err) => resolve(`error: ${err.message}`));
   });
 }
 
@@ -84,8 +95,30 @@ test('a malformed %-escape gets a 404 and the server stays up', { skip }, async 
   await assertAlive();
 });
 
-test('a malformed Host header gets a 400 and the server stays up', { skip }, async () => {
+test('a malformed Host header is refused and the server stays up', { skip }, async () => {
   const res = await raw('GET /control/ HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n');
+  assert.match(res, /^HTTP\/1\.1 403/);
+  await assertAlive();
+});
+
+test('a URL that cannot be parsed gets a 400 and the server stays up', { skip }, async () => {
+  const res = await raw(`GET http://[bad/ HTTP/1.1\r\nHost: localhost:${port}\r\nConnection: close\r\n\r\n`);
   assert.match(res, /^HTTP\/1\.1 400/);
   await assertAlive();
+});
+
+// DNS rebinding: an outside domain resolved to 127.0.0.1 arrives with its own Host.
+test('requests for a non-loopback Host are refused (DNS rebinding)', { skip }, async () => {
+  for (const path of ['/token', '/config', '/control/']) {
+    const res = await raw(`GET ${path} HTTP/1.1\r\nHost: evil.example:${port}\r\nConnection: close\r\n\r\n`);
+    assert.match(res, /^HTTP\/1\.1 403/, path);
+  }
+  assert.equal((await get('/config')).status, 200); // 127.0.0.1 still works
+  const viaLocalhost = await raw(`GET /control/ HTTP/1.1\r\nHost: localhost:${port}\r\nConnection: close\r\n\r\n`);
+  assert.match(viaLocalhost, /^HTTP\/1\.1 200/);
+});
+
+test('the relay refuses a non-loopback Host', { skip }, async () => {
+  assert.equal(await relayConnect(), 'open');
+  assert.equal(await relayConnect({ headers: { Host: `evil.example:${port}` } }), 401);
 });
