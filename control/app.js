@@ -77,10 +77,14 @@ async function start() {
     });
   } catch (err) {
     console.error(err);
+    if (session !== s) return; // already ended; don't stop a newer session
     setStatus(err.message || String(err), 'err');
     stop();
     return;
   }
+  // Scribe can close while the mic permission prompt is open; stop() then ran
+  // before the mic existed, so release it here or it stays on.
+  if (session !== s) { s.audio.stop(); return; }
   sendCalib(s);
   ui.stop.disabled = false;
   requestAnimationFrame(function meter() {
