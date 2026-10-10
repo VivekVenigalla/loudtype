@@ -204,7 +204,6 @@ async function finalize(s, text, timedWords) {
   s.lastFinal = { text, at: performance.now() };
 
   let words;
-  s.debugWords = timedWords;
   if (timedWords && s.t0 != null) {
     words = timedWords.map((w) => ({
       word: w.text.trim(),

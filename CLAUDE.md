@@ -74,7 +74,7 @@ Known issues:
 - **The user's ElevenLabs plan does not support zero-retention mode** (Scribe warning: enterprise/trial only), so audio is logged by ElevenLabs. Don't claim zero retention in the pitch.
 - At 1280 px, a line of six shouted words still drops its oldest word even at 65% fit (fits at 1920).
 - Untimed commits (if Scribe sends no timestamps) stay unstyled and aren't exported.
-- `STREAM_SAFE` and `DEFAULT_PACK` exist in config but aren't implemented.
+- `STREAM_SAFE` exists in config but isn't implemented (defaults to `false`, commented as such).
 
 ## Next steps (in priority order)
 
@@ -82,7 +82,7 @@ Known issues:
 2. Run the After Effects export in AE once; fix anything that breaks (ExtendScript is ES3, layer in/out ordering, markers on the Highlights null).
 3. Stream-safe mode: replace swear words with a symbol burst (#@%!) at the same size, weight and color.
 4. Sync mode: measure caption latency (the learned partial lag plus commit time) and tell the streamer the OBS delay to set.
-5. Arcade and Ink style packs (font, palette and outline only; the type grammar never changes) and wire `DEFAULT_PACK`.
+5. Arcade and Ink style packs (font, palette and outline only; the type grammar never changes) and add a `DEFAULT_PACK` config option.
 6. Shout-line width: consider chunking by measured width instead of word count so shouted lines never drop words.
 7. Demo polish: record a real `replay/demo.json` (Stop → Save last session), ideally the Atlanta freestyle clip from the spec, and collect the three customer-discovery quotes (streamer, Deaf/HoH viewer, motion designer).
 8. Visual design pass on the control panel and overlay (barebones so far by request).

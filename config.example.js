@@ -9,6 +9,5 @@ export const CONFIG = {
   COLORBLIND_PALETTE: false,
   STREAM_SAFE: false,            // not implemented yet: swear words are NOT filtered
   SHOUT_POP: true,
-  DEFAULT_PACK: 'studio',
   RELAY_PORT: 7777,
 };
