@@ -12,6 +12,7 @@ npm run setup                    # one-time: GoEmotions model + Roboto Flex into
 cp config.example.js config.js   # add ELEVENLABS_API_KEY (config.js is gitignored and already exists locally)
 npm start                        # http://localhost:7777/control/ and /overlay/
 npm test                         # node:test, no network; starts its own server on a free port
+npm run typecheck                # tsc over the DOM-free modules (JSDoc types, nothing compiled)
 ```
 
 - If `npm start` says port 7777 is in use, a server is already running: `lsof -ti tcp:7777 | xargs kill`.
@@ -32,18 +33,22 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
   emotion.js + emotion-core.js: line emotion
 ```
 
-- **server.js** (Node, only dep `ws`): serves `control/ overlay/ fonts/ models/ replay/` (whitelisted top-level dirs only, checked in `server-paths.js` *after* resolving `..`, so `config.js` and `server.js` are never served), maps `/vendor/transformers/` → `@huggingface/transformers/dist` and `/vendor/ort/` → `onnxruntime-web/dist`. `GET /token` mints a single-use Scribe token (API key never reaches the browser). `GET /config` returns config minus the key. `/relay` rebroadcasts control → overlay; stores nothing.
+- **server.js** (Node, only runtime dep `ws`): serves `control/ overlay/ fonts/ models/ replay/` (whitelisted top-level dirs only, checked in `server-paths.js` *after* resolving `..`, so `config.js` and `server.js` are never served), streamed, maps `/vendor/transformers/` → `@huggingface/transformers/dist` and `/vendor/ort/` → `onnxruntime-web/dist`. `GET /token` mints a single-use Scribe token (API key never reaches the browser). `GET /config` returns config minus the key. `/relay` rebroadcasts control → overlay; stores nothing.
+  - Security rules (each has a test in `test/server.test.js`): only loopback `Host` headers are answered (DNS rebinding); the relay only accepts an `Origin` from this server; a malformed request gets 400/404, never a crash. Every response carries COOP/COEP (cross-origin isolation → the emotion model runs on 4 threads, ~2× faster per line); so pages must not load anything from another origin.
+  - `LOUDTYPE_PORT=7791 node server.js` runs a second copy for testing next to the user's server on 7777.
 - **control/**
-  - `app.js`: session orchestration, partial/commit handling, emotion, replay, export, Director's View, mood hotkeys, judge prompt cards. `window.loudtype.session()` exposes the live session for debugging.
+  - `app.js`: UI wiring: session start/stop, Scribe reconnect (up to 3 tries, calibration kept; auth/quota errors stop), replay, export, Director's View, mood hotkeys, judge prompt cards. `latest` = the newest session (running or stopped); only it may send, log or export. `window.loudtype.session()` exposes the live session for debugging.
+  - `transcript.js`: the partial → commit → timestamped-commit state machine (no DOM; dependencies injected). Waits 600 ms for the timestamped commit; a late one upgrades the line in place. Keeps the session's exportable `lines`; word times stay on the session clock across reconnects (`origin`).
+  - `caption.js`: the shared grammar (levels, level order, icons, emotion colors, model id) and the JSDoc types of the caption event. `overlay/style.css` repeats the colors; `test/caption.test.js` keeps them in sync.
   - `audio.js` + `pcm-worklet.js`: mic with AGC/noise suppression **off** (they'd flatten loudness). All measurement happens **in the worklet** with exact `currentTime` stamps; main-thread timing was ~0.5 s off while the model loaded.
   - `features.js`: per-frame `{db, voicing}`; voicing = normalized autocorrelation peak at 70–400 Hz (whispers ≈ unvoiced). Shared by worklet and eval scripts.
-  - `prosody.js`: learns the speaker's normal level (median of the first 6 *voiced* words), then levels by fixed dB offsets: whisper ≤ −10 or (voiced share < 0.3 and < +4 dB), soft ≤ −5, loud ≥ +5, shout ≥ +10. "Normal" slowly tracks the speaker (only from normal words). Noise floor = 10th percentile of the last 5 s, clamped ≥ −72 dB. Width (`wdth` 100–151) from ms-per-letter vs. the speaker's median. `styleLive()` styles partial words instantly; committed timestamps then correct them.
+  - `prosody.js`: learns the speaker's normal level (median of the first 6 *voiced* words), then levels by fixed dB offsets: whisper ≤ −10 or (voiced share < 0.3 and < +4 dB), soft ≤ −5, loud ≥ +5, shout ≥ +10. "Normal" slowly tracks the speaker (only from normal words). Noise floor = 10th percentile of the last 5 s, clamped ≥ −72 dB. A committed word whose timing lands on a pause (no speech frames, within 3 dB of the floor) stays normal and teaches nothing. Width (`wdth` 100–151) from ms-per-letter vs. the speaker's median. `styleLive()` styles partial words instantly; committed timestamps then correct them.
   - `stt.js`: Scribe realtime (`commit_strategy=vad`, `include_timestamps=true`, `vad_silence_threshold_secs` from config). Warnings surface in the status line.
   - `emotion.js` / `emotion-core.js`: GoEmotions (`SamLowe/roberta-base-go_emotions-onnx`, q8, local only) → pos/neg/neutral, a stream-slang regex layer, and energy = mostly voice levels + some text arousal. Quadrant: pos+high → happy ★ yellow, pos+low → calm ● green, neg+high → angry ▲ red, neg+low → sad ▼ blue; neutral/low confidence → white.
-  - `relay.js` (ws client + in-memory recording for replay), `export.js` (`.srt` + ExtendScript `.jsx`; **ES3 only** in generated code).
+  - `relay.js` (ws client + in-memory `Recording` for replay, last 10 minutes only), `export.js` (`.srt` + ExtendScript `.jsx`; **ES3 only** and **pure ASCII** in generated code).
 - **overlay/** `render.js`: chunks long utterances (7 words or a sentence end), max 2 lines, staggered 90 ms fade-in per word, shrink-to-fit (`--fit` ≥ 0.65) before hiding oldest words, clears after 3.5 s silence. Fit uses `offsetWidth` against the stage width (transforms from the shout pop must not count). `style.css`: Studio pack, per-level outlines (thin for whispers, heavy for shouts), word spacing in `em` of each word, colorblind palette via the `.colorblind` class.
 
-**Caption event** sent to the overlay: `{type:'line', line, final, provisional, emotion, confidence, words:[{word, level, size, wght, wdth, start?, end?}]}`. Other types: `calib {progress}`, `pack {pack}`, `prompt {text, step, of}`, `clear`.
+**Caption event** sent to the overlay (typed as `CaptionEvent` in `caption.js`): `{type:'line', line, final, provisional, emotion, confidence, words:[{word, level, size, wght, wdth, start?, end?}]}`. Other types: `calib {progress}`, `pack {pack}`, `prompt {text, step, of}`, `clear`.
 
 ## Design rules (from the spec; don't break them)
 
@@ -55,9 +60,10 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
 
 ## Testing
 
-- `node scripts/eval-volume.mjs [old-prosody.js]`: builds a clip with macOS `say` (incl. the `Whisper` voice) where every word's level is known, gets real Scribe timestamps (needs the key, uses network), scores levels. Last result: 48/51 exact, 51/51 within one level (old z-score method: 44/51).
+- `npm test` (86 tests, ~1 s, no network, no model): server security and file serving against a real copy on a free port, path resolution, transcript state machine (fake Scribe events, mocked timers), prosody (synthetic frames), emotion-core (fixed scores), features, export, relay recording, caption sync. Run it after every change. `npm run typecheck` too.
+- `node scripts/eval-volume.mjs [old-prosody.js]` (ask first: uses the user's ElevenLabs quota): builds a clip with macOS `say` (incl. the `Whisper` voice) where every word's level is known, gets real Scribe timestamps (needs the key, uses network), scores levels. Last result: 48/51 exact, 51/51 within one level (old z-score method: 44/51), before the silent-word fix in `prosody.js` (not re-run since).
 - `node scripts/eval-emotion.mjs`: 30 tuning lines, 20 held-out lines, 8 voice-quadrant cases. Last result: tuning 30/30, held-out 18/20 (old SST-2: 12/20), quadrants 8/8. Don't tune on the held-out set.
-- **Fake-mic browser test:** put a WAV in `replay/`, then in the control tab override `navigator.mediaDevices.getUserMedia` to return `MediaStreamDestination.stream` from an `AudioBufferSource`, click Start, and watch the overlay DOM (MutationObserver) in another tab. This is how the end-to-end pipeline was verified. Delete test WAVs afterwards.
+- **Fake-mic browser test:** put a WAV in `replay/`, then in the control tab override `navigator.mediaDevices.getUserMedia` to return `MediaStreamDestination.stream` from an `AudioBufferSource`, click Start, and watch the overlay DOM (MutationObserver) in another tab. This is how the end-to-end pipeline was verified (last: after the audit, incl. a forced Scribe drop to test reconnect). The fake `AudioContext` needs a real click on Start (user gesture). Delete test WAVs afterwards.
 - `node scripts/make-demo.js` regenerates the scripted offline clip `replay/demo.json`.
 - Measured facts: Scribe partials arrive in bursts ~1/s, ~0.8 s after speech (learned at runtime from timestamps).
 
@@ -73,7 +79,8 @@ Not verified yet:
 Known issues:
 - **The user's ElevenLabs plan does not support zero-retention mode** (Scribe warning: enterprise/trial only), so audio is logged by ElevenLabs. Don't claim zero retention in the pitch.
 - At 1280 px, a line of six shouted words still drops its oldest word even at 65% fit (fits at 1920).
-- Untimed commits (if Scribe sends no timestamps) stay unstyled and aren't exported.
+- Untimed commits (if Scribe never sends timestamps for a line) stay unstyled and aren't exported.
+- After an OBS-side change of the overlay URL host (e.g. a custom hostname), the relay refuses it: use `localhost` or `127.0.0.1`.
 - `STREAM_SAFE` exists in config but isn't implemented (defaults to `false`, commented as such).
 
 ## Next steps (in priority order)
