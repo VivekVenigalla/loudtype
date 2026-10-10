@@ -13,7 +13,7 @@
 import { LEVELS } from './caption.js';
 
 // dB relative to the speaker's normal level.
-export const THRESHOLDS = { whisper: -10, soft: -5, loud: 5, shout: 10 };
+export const THRESHOLDS = { whisper: -10, soft: -5, loud: 5, shout: 8 }; // shout was +10: AirPods cap shouts at +8..+10
 export const CALIBRATE_WORDS = 6;
 const UNVOICED_SHARE = 0.3;   // below this share of voiced frames → whisper
 const VOICED_FRAME = 0.45;    // frame voicing at/above this counts as voiced
@@ -24,6 +24,7 @@ const SILENCE_MARGIN_DB = 3;  // a word span this close to the noise floor has n
 const TRACK_RATE = 0.05;      // how fast "normal" follows the speaker after calibration
 const HISTORY_SEC = 30;
 const WORD_HISTORY = 80;
+const REPORT_WORDS = 40;      // measured words kept for the mic report
 const HOLD_RATIO = 1.6;       // ms-per-letter vs. normal before a word stretches
 const HOLD_MAX_RATIO = 3.2;   // ratio that reaches full width
 const WDTH_MAX = 151;
@@ -37,6 +38,7 @@ export class Prosody {
     this.calibDbs = [];
     this.wordPace = [];   // ms per letter
     this.last = null;     // last committed word's measurements (Director's View)
+    this.history = [];    // the last REPORT_WORDS of those (mic report)
   }
 
   get calibrated() { return this.ref != null; }
@@ -46,6 +48,7 @@ export class Prosody {
     this.ref = null;
     this.calibDbs = [];
     this.wordPace = [];
+    this.history = [];
   }
 
   push(t, db, voicing = 0) {
@@ -117,6 +120,12 @@ export class Prosody {
     return out;
   }
 
+  remember(word) {
+    this.last = { ...word, noiseDb: this.noiseDb };
+    this.history.push(this.last);
+    if (this.history.length > REPORT_WORDS) this.history.shift();
+  }
+
   /** Style one committed word. start/end are AudioContext seconds. */
   styleWord(text, start, end) {
     const st = this.stats(start, end);
@@ -126,7 +135,7 @@ export class Prosody {
     const level = silent ? 'normal' : this.levelFor(st);
 
     if (silent) {
-      this.last = { word: text, level, delta: null, voiced: st.voiced };
+      this.remember({ word: text, level, delta: null, db: st.db, voiced: st.voiced, speech: false, silent: true });
     } else if (st) {
       if (!this.calibrated) {
         // Learn "normal" only from voiced words, so an early whisper doesn't skew it.
@@ -135,7 +144,7 @@ export class Prosody {
       } else if (level === 'normal') {
         this.ref += (st.db - this.ref) * TRACK_RATE; // follow slow mic/posture changes
       }
-      this.last = { word: text, level, delta: this.ref != null ? st.db - this.ref : null, voiced: st.voiced };
+      this.remember({ word: text, level, delta: this.ref != null ? st.db - this.ref : null, db: st.db, voiced: st.voiced, speech: st.speech, silent: false });
     }
 
     let wdth = 100;

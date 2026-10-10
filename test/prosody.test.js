@@ -144,3 +144,32 @@ test('silence during calibration does not count as a normal word', () => {
   say('um', { db: ROOM, voicing: 0.6 }); // hum-like room tone that looks voiced
   assert.equal(p.calibration, 0);
 });
+
+test('keeps the recent words\' measurements for the mic report', () => {
+  const { p, say, calibrate } = speaker();
+  calibrate();
+  say('loud', { db: NORMAL + 12 });
+  say('the', { db: ROOM, voicing: 0.05 });
+  const [shout, pause] = p.history.slice(-2);
+  assert.equal(shout.word, 'loud');
+  assert.equal(shout.level, 'shout');
+  assert.ok(Math.abs(shout.delta - 12) < 0.01);
+  assert.equal(shout.speech, true);
+  assert.equal(pause.silent, true);
+  assert.equal(pause.level, 'normal');
+  assert.equal(p.last, pause);
+  for (let i = 0; i < 60; i++) say('word');
+  assert.equal(p.history.length, 40);
+  p.recalibrate();
+  assert.equal(p.history.length, 0);
+});
+
+// Real readings (2026-10-10). AirPods compress shouts to +8..+10 dB over normal
+// (the laptop mic gave +14..+15 for the same shout); normal speech reached +5.1.
+test('real-mic readings: AirPods shouts are shouts, normal wobble stays normal-ish', () => {
+  const { say, calibrate } = speaker();
+  calibrate();
+  for (const d of [8.2, 8.3, 9.0, 9.7, 13.8, 15.2]) assert.equal(say('WOW', { db: NORMAL + d }).level, 'shout', `+${d}`);
+  for (const d of [-0.9, 1.5, 2.2, 3.1]) assert.equal(say('word', { db: NORMAL + d }).level, 'normal', `+${d}`);
+  assert.notEqual(say('Test', { db: NORMAL + 5.1 }).level, 'shout'); // the one outlier: at most one step up
+});

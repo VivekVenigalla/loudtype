@@ -40,7 +40,7 @@ If they have time for one more: Stop → **Export → After Effects** and say "L
 
 ### Coaching the judge
 - If a whisper comes out "soft" instead of "whisper": "Even quieter, really breathy." Real whispers (no voice) are caught most reliably.
-- If a shout comes out only "loud": "Louder, like you just won." Shout = about 10 dB above their normal.
+- If a shout comes out only "loud": "Louder, like you just won." Shout = about 8 dB above their normal.
 - If calibration bar isn't full after card 1: have them say one more normal sentence.
 - If something looks wrong: click **New judge** and restart the cards. It takes 10 seconds.
 
@@ -59,7 +59,7 @@ Reproduce: `node scripts/eval-emotion.mjs` and `node scripts/eval-volume.mjs`.
 ## Q&A prep
 
 **"How does it know I'm loud? Everyone's mic is different."**
-It learns your normal level from your first sentence, then measures every word in decibels against *you*. A shout is about 10 dB above your normal, on any mic. (Show Director's View: the bar and the thresholds.)
+It learns your normal level from your first sentence, then measures every word in decibels against *you*. A shout is about 8 dB above your normal, on any mic. (Show Director's View: the bar and the thresholds.)
 
 **"How do you detect a whisper?"**
 Two signals: it's quieter than your normal, and it has no voicing. Whispers don't vibrate the vocal cords, so the audio has no pitch. That works even if the mic is close.

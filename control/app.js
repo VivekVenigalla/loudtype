@@ -15,6 +15,7 @@ const ui = {
   newJudge: $('new-judge'), mood: $('mood'), prompt: $('prompt'), promptPrev: $('prompt-prev'),
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
+  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvCopy: $('dv-copy'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -42,7 +43,7 @@ async function start() {
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null };
+  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null };
   s.transcript = new Transcript({
     prosody: s.prosody,
     // A line from an older session can still be classifying after Start; it
@@ -83,6 +84,9 @@ async function start() {
   // Scribe can close while the mic permission prompt is open; stop() then ran
   // before the mic existed, so release it here or it stays on.
   if (session !== s) { s.audio.stop(); return; }
+  // Read now: Chrome returns no settings for a stopped track.
+  s.mic = { label: s.audio.track?.label, ...s.audio.track?.getSettings() };
+  showMic(s.mic);
   sendCalib(s);
   ui.stop.disabled = false;
   requestAnimationFrame(function meter() {
@@ -207,10 +211,18 @@ function showLive(p) {
   ui.dvRef.textContent = p.calibrated
     ? `Your normal level: ${p.ref.toFixed(1)} dBFS (learned from your voice)`
     : `Learning your normal level… ${Math.round(p.calibration * 100)}%`;
+  ui.dvRoom.textContent = `Room noise: ${p.noiseDb.toFixed(1)} dBFS · quieter than ${(p.noiseDb + 10).toFixed(1)} dBFS doesn't count as speech`;
+}
+// Auto gain or noise suppression would flatten the loudness Loudtype measures;
+// audio.js asks Chrome to turn them off, and this shows whether it did.
+function showMic(mic) {
+  const on = (k) => (mic[k] == null ? 'unknown' : mic[k] ? 'ON (flattens loudness!)' : 'off');
+  ui.dvMic.textContent = `Mic: ${mic.label || 'unnamed'} · auto gain ${on('autoGainControl')} · noise suppression ${on('noiseSuppression')}`;
 }
 function showWordInfo(p) {
   const w = p.last;
   if (!w) return;
+  if (w.silent) { ui.dvWord.textContent = `Last word "${w.word}": no voice found where it was timed (left normal)`; return; }
   ui.dvWord.textContent = `Last word "${w.word}": ${w.level}` +
     (w.delta != null ? ` · ${w.delta >= 0 ? '+' : ''}${w.delta.toFixed(1)} dB vs normal` : '') +
     ` · voiced ${(w.voiced * 100).toFixed(0)}%${w.voiced < 0.3 ? ' (whisper-like)' : ''}`;
@@ -219,6 +231,38 @@ function showLineInfo(text, emotion, confidence, info) {
   ui.dvLine.textContent = `Last line: ${emotion}` + (forcedMood ? ' (forced by hotkey)' :
     info ? ` · confidence ${confidence.toFixed(2)} (needs ${config.EMOTION_MIN_CONFIDENCE}) · voice+text energy ${info.energy.toFixed(2)} · model: ${info.top}` : '');
 }
+
+// Everything needed to tune levels for a real mic, as JSON on the clipboard.
+function micReport(s) {
+  const p = s.prosody;
+  const r1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
+  const mic = s.mic ?? {};
+  const spread = (dbs) => {
+    const sorted = [...dbs].sort((a, b) => a - b);
+    const at = (q) => r1(sorted[Math.floor((sorted.length - 1) * q)]);
+    return sorted.length ? { min: at(0), p10: at(0.1), p50: at(0.5), p90: at(0.9), max: at(1) } : null;
+  };
+  return {
+    mic: mic.label ?? null,
+    chromeApplied: { autoGainControl: mic.autoGainControl, noiseSuppression: mic.noiseSuppression, echoCancellation: mic.echoCancellation, sampleRate: mic.sampleRate },
+    calibrated: p.calibrated, normalDb: r1(p.ref), noiseFloorDb: r1(p.noiseDb), thresholds: THRESHOLDS,
+    allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
+    speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
+    words: p.history.map((w) => ({ word: w.word, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), speech: w.speech, silent: w.silent })),
+  };
+}
+ui.dvCopy.onclick = async () => {
+  const s = session ?? latest;
+  if (!s) return setStatus('Start listening first, then copy the mic report.', 'warn');
+  const text = JSON.stringify(micReport(s), null, 1);
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus(`Mic report copied (${s.prosody.history.length} words).`, 'ok');
+  } catch {
+    console.log(text);
+    setStatus('Could not copy; the mic report is in the browser console.', 'warn');
+  }
+};
 
 // ---------- creator controls ----------
 // Hotkeys force a mood (e.g. a fake rage bit goes red on cue); 0 = automatic.
@@ -267,4 +311,4 @@ ui.stop.onclick = stop;
 ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { record: false });
 
 // Debugging from the console: loudtype.session().prosody, etc.
-window.loudtype = { session: () => session };
+window.loudtype = { session: () => session, micReport: () => latest && micReport(latest) };

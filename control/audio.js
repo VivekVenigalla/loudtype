@@ -21,6 +21,7 @@ export async function startAudio({ onFrame, onChunk }) {
 
   return {
     ctx,
+    track: stream.getAudioTracks()[0], // for the mic report: label and what Chrome actually applied
     stop() {
       worklet.port.onmessage = null;
       source.disconnect();
