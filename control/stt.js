@@ -17,8 +17,8 @@ function toBase64(buffer) {
  */
 export async function openScribe({ modelId, zeroRetention, vadSilenceSecs }, h) {
   const res = await fetch('/token');
-  const body = await res.json();
-  if (!res.ok || !body.token) throw new Error(body.error || 'Could not get speech-to-text token');
+  const body = await res.json().catch(() => ({})); // e.g. an HTML error page
+  if (!res.ok || !body.token) throw new Error(body.error || `Could not get a speech-to-text token (server answered ${res.status})`);
 
   const params = new URLSearchParams({
     model_id: modelId || 'scribe_v2_realtime',
