@@ -45,37 +45,40 @@ body.debug-bg {
   bottom: 6vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   font-family: var(--font);
 }
 
+.lane {
+  width: 100%;
+  transition: opacity 400ms linear;
+}
+.lane.fading { opacity: 0; }
 .line {
-  /* One shared baseline. Height fixed to the largest (shout) size so a shout
-     never pushes the line around; bigger words only grow upward. */
+  /* One shared baseline per row. Height fixed to the largest (shout) size so
+     a shout never pushes the row around; bigger words only grow upward.
+     Left-aligned so words already shown never shift as new ones arrive. */
   display: flex;
   align-items: baseline;
-  justify-content: center;
+  justify-content: flex-start;
   white-space: nowrap;
   max-width: 100%;
   overflow: hidden;
-  font-size: calc(var(--base) * var(--fit, 1));  /* --fit < 1 only for over-wide lines */
+  font-size: var(--base);
   line-height: 1;
   height: calc(var(--base) * 1.6 * 1.25);         /* fixed, so the baseline never moves */
   padding-top: 0.1em;
   box-sizing: border-box;
-  color: var(--c-neutral);
-  transition: color 200ms linear, opacity 400ms linear;
 }
-.line.fading { opacity: 0; }
-.line.happy { color: var(--c-happy); }
-.line.calm  { color: var(--c-calm); }
-.line.angry { color: var(--c-angry); }
-.line.sad   { color: var(--c-sad); }
-.line.provisional.happy { color: color-mix(in srgb, var(--c-happy) 55%, white); }
-.line.provisional.calm  { color: color-mix(in srgb, var(--c-calm) 55%, white); }
-.line.provisional.angry { color: color-mix(in srgb, var(--c-angry) 55%, white); }
-.line.provisional.sad   { color: color-mix(in srgb, var(--c-sad) 55%, white); }
-
+.w, .icon { color: var(--c-neutral); transition: color 200ms linear; }
+.happy { color: var(--c-happy); }
+.calm  { color: var(--c-calm); }
+.angry { color: var(--c-angry); }
+.sad   { color: var(--c-sad); }
+.provisional.happy { color: color-mix(in srgb, var(--c-happy) 55%, white); }
+.provisional.calm  { color: color-mix(in srgb, var(--c-calm) 55%, white); }
+.provisional.angry { color: color-mix(in srgb, var(--c-angry) 55%, white); }
+.provisional.sad   { color: color-mix(in srgb, var(--c-sad) 55%, white); }
 .icon {
   font-size: 0.7em;
   font-variation-settings: 'wght' 700;

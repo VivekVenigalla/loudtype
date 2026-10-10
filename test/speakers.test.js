@@ -117,3 +117,29 @@ test('transcript lines carry their speaker; live words show the guess or the las
   await new Promise((r) => setImmediate(r));
   assert.equal(sent.at(-1).speaker, 2); // no live guess yet: the last speaker
 });
+
+test('splitTurns: a committed line splits at pauses into stretches long enough to identify', async () => {
+  const { splitTurns } = await import('../control/transcript.js');
+  const w = (start, end) => ({ text: 'x', start, end, type: 'word' });
+  // A: 0-1.3 s, pause 0.4 s, B: 1.7-3.0 s, then a short "yeah" after a pause (joins B)
+  const turns = splitTurns([w(0, 0.4), w(0.45, 0.9), w(0.95, 1.3), w(1.7, 2.2), w(2.25, 3.0), w(3.4, 3.6)]);
+  assert.deepEqual(turns.map((t) => t.length), [3, 3]);
+  assert.equal(splitTurns([w(0, 0.3), w(0.6, 0.9)]).length, 1); // too short to be two people
+});
+
+test('label everyone: two people in one committed line get their own speakers', async () => {
+  const { p, span, frames } = scene();
+  const sent = [];
+  const asked = [];
+  const tr = new Transcript({
+    prosody: p, send: (m) => sent.push(m), classify: () => null, mood: () => null,
+    identify: (start, end, live) => { if (!live) asked.push([start, end]); return Promise.resolve(live ? null : { verdict: 'match', best: asked.length - 1, score: 0.8, scores: [], seconds: 2 }); },
+  });
+  tr.t0 = 0;
+  const a = [span(-25, 110), span(-25, 110), span(-25, 110)];
+  frames(-60, 0, 15, 0); // the handover pause is longer than the pauses inside each turn
+  const b = [span(-35, 240), span(-35, 240), span(-35, 240)];
+  await tr.committedTimed({ text: 'a a a b b b', words: [...a, ...b] });
+  assert.equal(asked.length, 2);
+  assert.deepEqual(sent.at(-1).words.map((x) => x.speaker), [1, 1, 1, 2, 2, 2]);
+});
