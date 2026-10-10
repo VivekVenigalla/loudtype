@@ -19,12 +19,17 @@ export function frameFeatures(samples, sampleRate) {
   return { db, voicing: db < -70 ? 0 : voicing(samples, sampleRate) };
 }
 
+// Reused between calls: this runs ~30x a second on the audio thread, where
+// allocating means garbage collection pauses.
+let scratch = new Float32Array(0);
+
 function voicing(samples, sampleRate) {
   // Box-filter downsample to ~12 kHz.
   const step = Math.max(1, Math.round(sampleRate / WORK_RATE));
   const rate = sampleRate / step;
   const n = Math.floor(samples.length / step);
-  const x = new Float32Array(n);
+  if (scratch.length < n) scratch = new Float32Array(n);
+  const x = scratch; // only x[0..n) is used
   let mean = 0;
   for (let i = 0; i < n; i++) {
     let s = 0;
