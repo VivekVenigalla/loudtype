@@ -124,9 +124,12 @@ function sendCalib(s) {
 function logLine(line) {
   const row = document.createElement('div');
   row.className = `row ${line.emotion}`;
+  row.dataset.line = line.line;
   row.textContent = `[${line.emotion} ${line.confidence.toFixed(2)}] ` +
     line.words.map((w) => (w.level === 'normal' ? w.word : `${w.word}(${w.level}${w.wdth > 100 ? ',w' + w.wdth : ''})`)).join(' ');
-  ui.log.prepend(row);
+  const old = ui.log.querySelector(`[data-line="${line.line}"]`); // a late timestamped commit re-finalizes a line
+  if (old) old.replaceWith(row);
+  else ui.log.prepend(row);
 }
 
 // ---------- replay ----------

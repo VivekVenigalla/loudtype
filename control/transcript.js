@@ -33,6 +33,7 @@ export class Transcript {
     this.current = null;     // the line being spoken: { id, text, styles, seenAt, lastAt, provisional, classifying }
     this.pendingCommit = null;
     this.lastFinal = { text: '', at: 0 };
+    this.untimed = null;     // last line finalized without timestamps: { id, text, at, emotion, superseded }
     this.lags = [];          // measured partial delays (s)
     this.lines = [];         // finished lines with word timings, for export (memory only)
     this.closed = false;
@@ -114,22 +115,34 @@ export class Transcript {
     if (this.closed) return;
     clearTimeout(this.pendingCommit);
     if (!text.trim() || !words.length) { this.current = null; return; }
+    // Late: the plain commit already finalized this line without timings after
+    // UNTIMED_WAIT_MS. Upgrade that line in place instead of adding a second one.
+    const late = this.untimed;
+    if (late && late.text === text && this.clock() - late.at < DUPLICATE_MS) {
+      this.untimed = null;
+      late.superseded = true; // its classification may still be running; drop its result
+      return this.finalize(text, words, late);
+    }
     return this.finalize(text, words);
   }
 
-  async finalize(text, timedWords) {
-    const id = this.current?.id ?? ++this.lineSeq;
-    const provisional = this.current?.provisional ?? 'neutral';
+  async finalize(text, timedWords, late = null) {
+    // A late upgrade belongs to an earlier line: leave the line being spoken alone.
+    const cur = late ? null : this.current;
+    const id = late?.id ?? cur?.id ?? ++this.lineSeq;
+    const provisional = late?.emotion ?? cur?.provisional ?? 'neutral';
     // Learn the partial delay: when each word first showed up vs. when it ended.
-    if (timedWords && this.t0 != null && this.current) {
-      this.current.seenAt.slice(0, timedWords.length).forEach((seen, i) => {
+    if (timedWords && this.t0 != null && cur) {
+      cur.seenAt.slice(0, timedWords.length).forEach((seen, i) => {
         const lag = seen - (this.t0 + timedWords[i].end);
         if (lag > 0.05 && lag < 3) this.lags.push(lag);
       });
       this.lags.splice(0, Math.max(0, this.lags.length - 40));
     }
-    this.current = null;
+    if (!late) this.current = null;
     this.lastFinal = { text, at: this.clock() };
+    const untimed = timedWords ? null : { id, text, at: this.clock(), emotion: 'neutral', superseded: false };
+    if (untimed) this.untimed = untimed;
 
     let words;
     if (timedWords && this.t0 != null) {
@@ -154,8 +167,10 @@ export class Transcript {
         ({ emotion, confidence } = info);
       } catch (err) { console.error(err); }
     }
+    if (untimed?.superseded) return; // the timestamped version took over this line
     const forced = this.mood();
     if (forced) { emotion = forced; confidence = 1; }
+    if (untimed) untimed.emotion = emotion;
     this.send({ ...base, final: true, provisional: false, emotion, confidence: +confidence.toFixed(2) });
     const line = { line: id, text, emotion, confidence, words };
     if (words.every((w) => typeof w.start === 'number')) this.lines.push(line);

@@ -229,3 +229,60 @@ test('a line still being classified when the session closes stays in that sessio
   await done;
   assert.deepEqual(tr.lines.map((l) => [l.text, l.emotion]), [['last words', 'calm']]);
 });
+
+test('a timestamped commit arriving after the 600 ms wait upgrades that line in place', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  classifyResult = { emotion: 'happy', confidence: 0.9 };
+  tr.at(2); tr.partial('we won');
+  tr.committed('we won');
+  mock.timers.tick(600);
+  await flush();                                   // finalized untimed as line 1
+  clockMs = 800;
+  await tr.committedTimed(timed('we won'));        // late
+  const lineIds = new Set(sent.filter((m) => m.type === 'line').map((m) => m.line));
+  assert.deepEqual([...lineIds], [1]);             // no second line on the overlay
+  assert.equal(typeof lastLine().words[0].start, 'number');
+  assert.equal(sent.at(-2).emotion, 'happy');      // keeps its tint while re-classifying
+  assert.deepEqual(tr.lines.map((l) => l.line), [1]);
+  tr.partial('next');
+  assert.equal(lastLine().line, 2);
+});
+
+test('a late timestamped commit does not overwrite the next line being spoken', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  tr.at(2); tr.partial('first line');
+  tr.committed('first line');
+  mock.timers.tick(600);
+  await flush();
+  tr.at(3); tr.partial('second line starts');      // line 2 in progress
+  clockMs = 900;
+  await tr.committedTimed(timed('first line'));
+  assert.equal(lastLine().line, 1);
+  assert.equal(tr.current.id, 2);
+  assert.equal(tr.current.text, 'second line starts');
+  tr.partial('second line starts here');
+  assert.equal(lastLine().line, 2);
+});
+
+test('a late upgrade wins even if the plain version is still classifying', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  const pending = [];
+  tr.classify = () => new Promise((r) => pending.push(r));
+  tr.at(2); tr.partial('hold on');
+  tr.committed('hold on');
+  mock.timers.tick(600);                           // untimed finalize starts classifying
+  clockMs = 700;
+  const upgrade = tr.committedTimed(timed('hold on'));
+  pending[1]({ emotion: 'calm', confidence: 0.8 }); // the timed one resolves first...
+  await upgrade;
+  pending[0]({ emotion: 'angry', confidence: 0.9 }); // ...then the stale untimed one
+  await flush();
+  const finalsSent = sent.filter((m) => m.final);
+  assert.equal(finalsSent.length, 1);
+  assert.equal(finalsSent[0].emotion, 'calm');
+  assert.equal(typeof finalsSent[0].words[0].start, 'number');
+  assert.deepEqual(finals.map((f) => f.line.emotion), ['calm']);
+});
