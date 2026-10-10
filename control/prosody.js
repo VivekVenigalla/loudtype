@@ -20,6 +20,7 @@ const VOICED_FRAME = 0.45;    // frame voicing at/above this counts as voiced
 const WHISPER_MAX_DB = 4;     // an unvoiced word louder than normal+4 isn't a whisper
 const NOISE_FLOOR_MIN_DB = -72;
 const NOISE_WINDOW = 150;     // frames (~5 s) used to estimate the noise floor
+const SILENCE_MARGIN_DB = 3;  // a word span this close to the noise floor has no word in it
 const TRACK_RATE = 0.05;      // how fast "normal" follows the speaker after calibration
 const HISTORY_SEC = 30;
 const WORD_HISTORY = 80;
@@ -119,9 +120,14 @@ export class Prosody {
   /** Style one committed word. start/end are AudioContext seconds. */
   styleWord(text, start, end) {
     const st = this.stats(start, end);
-    const level = this.levelFor(st);
+    // Timestamps can land a word on a pause. Room tone there isn't a whisper,
+    // and must not teach calibration anything, so it stays normal and unmeasured.
+    const silent = st && !st.speech && st.db < this.noiseDb + SILENCE_MARGIN_DB;
+    const level = silent ? 'normal' : this.levelFor(st);
 
-    if (st) {
+    if (silent) {
+      this.last = { word: text, level, delta: null, voiced: st.voiced };
+    } else if (st) {
       if (!this.calibrated) {
         // Learn "normal" only from voiced words, so an early whisper doesn't skew it.
         if (st.voiced >= UNVOICED_SHARE) this.calibDbs.push(st.db);

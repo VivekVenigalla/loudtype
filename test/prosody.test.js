@@ -120,3 +120,27 @@ test('liveDelta and liveLevel describe the newest frame', () => {
   assert.equal(p.liveDelta(), null); // silence
   assert.equal(p.liveLevel(), 0);
 });
+
+// Scribe's timestamps can land a word on a pause (timing drift, a word the
+// recognizer guessed). There's no audio to measure, so it stays normal and
+// must not teach the model anything.
+test('a word whose timing lands in silence is normal, not a whisper', () => {
+  const { p, say, calibrate } = speaker();
+  calibrate();
+  const ref = p.ref;
+  assert.equal(say('the', { db: ROOM, voicing: 0.05 }).level, 'normal');
+  assert.equal(p.ref, ref);
+});
+
+test('a very quiet whisper below the speech gate is still a whisper', () => {
+  const { say, calibrate } = speaker();
+  calibrate();
+  // 8 dB over the room: under the +10 dB speech gate, but clearly not silence.
+  assert.equal(say('psst', { db: ROOM + 8, voicing: UNVOICED }).level, 'whisper');
+});
+
+test('silence during calibration does not count as a normal word', () => {
+  const { p, say } = speaker();
+  say('um', { db: ROOM, voicing: 0.6 }); // hum-like room tone that looks voiced
+  assert.equal(p.calibration, 0);
+});
