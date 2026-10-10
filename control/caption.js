@@ -39,3 +39,5 @@ export const EMOTION_COLORS = { neutral: '#ffffff', happy: '#ffd84d', calm: '#5b
 
 // GoEmotions (28 labels incl. neutral), run on-device from models/.
 export const EMOTION_MODEL = 'SamLowe/roberta-base-go_emotions-onnx';
+/** On-device speaker-embedding model (voiceprints), see control/voiceprint.js. */
+export const VOICE_MODEL = 'onnx-community/wespeaker-voxceleb-resnet34-LM';

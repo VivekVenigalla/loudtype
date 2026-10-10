@@ -69,3 +69,28 @@ test('a new threshold applies from then on; -Infinity turns the gate off', () =>
   g.setThreshold(-Infinity);
   assert.ok(energy(run(g, quiet), 0.3, 1) > 0.9 * energy(quiet, 0.3, 1));
 });
+
+test('unvoiced (whisper-like) frames open the gate from their own lower threshold', () => {
+  const g = new Gate();
+  g.setThreshold(-30, -45);
+  const x = scene(1.5, [[0.3, 0.6, -40], [0.9, 1.2, -40]]);
+  const y = new Float32Array(x.length);
+  const frame = Math.round(0.033 * RATE);
+  for (let i = 0; i < x.length; i++) {
+    y[i] = g.push(x[i]);
+    // the worklet reports the first burst's frames as unvoiced (a whisper); the second is voiced
+    const t = (i + 1) / RATE;
+    if ((i + 1) % frame === 0 && t > 0.3 && t <= 0.6) g.unvoiced(-40);
+  }
+  const d = g.delaySec;
+  assert.ok(energy(y, 0.33 + d, 0.6 + d) > 0.9 * energy(x, 0.33, 0.6), 'whisper passes');
+  assert.ok(energy(y, 0.9 + d, 1.2 + d) < 0.01 * energy(x, 0.9, 1.2), 'voiced at the same level does not');
+});
+
+test('the unvoiced threshold is never above the main one', () => {
+  const g = new Gate();
+  g.setThreshold(-50, -40);
+  assert.equal(g.unvoicedDb, -50);
+  g.setThreshold(-30);
+  assert.equal(g.unvoicedDb, -30);
+});

@@ -12,6 +12,8 @@ npm start
 - Offline demo: "Play demo clip" replays `replay/demo.json` (no network). Record a real one with Stop → "Save last session", then move the file into `replay/`. `node scripts/make-demo.js` regenerates the scripted clip.
 - Export: `.srt` and an After Effects `.jsx` (File → Scripts → Run Script File…).
 
+Only calibrated voices are captioned: the first sentence after Start (or New judge) teaches Loudtype your voiceprint (on-device). Director's View shows each line's match score. Run `npm run setup` once more to fetch the voiceprint model.
+
 Not built yet: sync mode, stream-safe censoring (`STREAM_SAFE` does nothing), Arcade/Ink packs.
 
 Tests: `npm test` (no network; starts its own server on a free port).

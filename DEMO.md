@@ -67,6 +67,9 @@ Two signals: it's quieter than your normal, and it has no voicing. Whispers don'
 **"What if the emotion is wrong?"**
 It only colors a line when it's confident; otherwise the line stays white. Size and weight always come straight from the voice. The streamer can force a mood with a hotkey.
 
+**"What if someone else talks? It's loud in here."**
+Your first sentence teaches it your voiceprint, on this laptop. Every line is compared to it in about 20 ms; anyone else's line is never captioned, even live. (Director's View: "last line: you ✓ 0.68".) Whispers have no voice to compare, so they're judged by loudness instead.
+
 **"How does it understand stream slang?"**
 The emotion model (GoEmotions, 28 emotions) runs on-device; we added a small stream-slang layer because the model reads "that was so sick" as illness.
 

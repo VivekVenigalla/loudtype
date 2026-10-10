@@ -6,10 +6,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthScene, measure, gateScene, passed, LEVEL } from '../scripts/scenes.mjs';
 import { Prosody } from '../control/prosody.js';
-import { frameFeatures } from '../control/features.js';
+import { frameFeatures, VOICED_FRAME } from '../control/features.js';
 import { Gate } from '../control/gate.js';
 
-const deps = { Prosody, frameFeatures, Gate };
+const deps = { Prosody, frameFeatures, Gate, VOICED_FRAME };
 const loud = synthScene();                              // chatter at LEVEL.babble per voice
 const quiet = synthScene({ babbleDb: LEVEL.babble - 10 });
 const spans = (scene, who, kind) => scene.spans.filter((s) => s.who === who && (!kind || s.kind === kind));

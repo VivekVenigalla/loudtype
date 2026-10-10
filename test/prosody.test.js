@@ -261,3 +261,25 @@ test('calibration learns the loudest voice, not chatter picked up before the spe
   assert.ok(Math.abs(p.ref - NORMAL) < 0.01);
   assert.equal(p.pitch, 180);
 });
+
+test('whispers get through the gate from lower down: room + 3 dB, or normal - 22 dB on a quiet mic', () => {
+  const sp = speaker();
+  assert.equal(sp.p.gateUnvoicedDb(), sp.p.gateDb()); // uncalibrated: same as voices
+  for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello');
+  assert.ok(Math.abs(sp.p.gateUnvoicedDb() - (NORMAL - 22)) < 0.01); // room is 30 dB down
+  const laptop = speaker(); // a laptop mic: the voice only 12 dB over the room
+  for (let i = 0; i < CALIBRATE_WORDS; i++) laptop.say('hello');
+  laptop.p.noiseDb = laptop.p.ref - 12;
+  assert.ok(Math.abs(laptop.p.gateUnvoicedDb() - (laptop.p.noiseDb + 3)) < 0.01); // whispers ~8 dB under normal still pass
+  assert.ok(Math.abs(laptop.p.gateDb() - (laptop.p.noiseDb + 6)) < 0.01);
+  laptop.p.focus = false;
+  assert.equal(laptop.p.gateUnvoicedDb(), -Infinity);
+});
+
+test('calibration remembers which words it learned from (voiceprint enrollment)', () => {
+  const sp = speaker();
+  sp.say('psst', { voicing: UNVOICED });
+  for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello');
+  assert.equal(sp.p.calibWords.length, CALIBRATE_WORDS); // not the whisper
+  assert.ok(sp.p.calibWords.every((w) => w.end > w.start));
+});

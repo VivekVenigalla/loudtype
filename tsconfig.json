@@ -18,6 +18,8 @@
     "control/speakers.js",
     "control/emotion-core.js",
     "control/features.js",
+    "control/gate.js",
+    "control/voiceprint-core.js",
     "control/export.js",
     "control/relay.js",
     "server-paths.js"

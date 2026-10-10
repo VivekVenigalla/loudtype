@@ -1,19 +1,11 @@
 // Line emotion, on-device: GoEmotions (RoBERTa, 28 labels incl. neutral) via
 // transformers.js, loaded from /models and never from the network, combined
 // with voice energy in emotion-core.js. Caption text never leaves the computer.
-import { pipeline, env } from '/vendor/transformers/transformers.min.js';
+import { transformers } from './ml.js';
 import { decide, voiceEnergy } from './emotion-core.js';
 import { EMOTION_MODEL } from './caption.js';
 
-env.allowRemoteModels = false;
-env.allowLocalModels = true;
-env.localModelPath = '/models/';
-env.useBrowserCache = false;
-env.backends.onnx.wasm.wasmPaths = '/vendor/ort/';
-// Threads need cross-origin isolation (server.js sends the headers); else one.
-env.backends.onnx.wasm.numThreads = globalThis.crossOriginIsolated
-  ? Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 2)))
-  : 1;
+const { pipeline } = transformers;
 
 let clf = null;
 

@@ -376,3 +376,91 @@ test('a line that is mostly someone else is dropped whole (their borderline word
   await tr.committedTimed(timed('we um won the game'));
   assert.deepEqual(lastLine().words.map((w) => w.word), ['we', 'won', 'the', 'game']);
 });
+
+// ---------- voiceprints (identify) ----------
+const verdict = (v, score = v === 'match' ? 0.8 : v === 'other' ? 0.1 : 0.5) => ({ verdict: v, best: 0, score, scores: [score], seconds: 2 });
+
+test('a committed line is checked by voiceprint first; prosody sees the verdict while styling', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  const asked = [], seen = [];
+  tr.identify = (start, end) => { asked.push([start, end]); return Promise.resolve(verdict('match')); };
+  tr.prosody.styleWord = () => { seen.push(tr.prosody.voice?.verdict); return style('normal'); };
+  await tr.committedTimed(timed('we won the game'));
+  assert.deepEqual(asked, [[11, 12.5]]); // t0 + first word start .. t0 + last word end
+  assert.deepEqual(seen, ['match', 'match', 'match', 'match']);
+  assert.equal(tr.prosody.voice, null); // only while styling
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['we', 'won', 'the', 'game']);
+});
+
+test('a line whose voice is someone else is not captioned', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  tr.identify = () => Promise.resolve(verdict('other'));
+  // as Prosody does with an 'other' verdict
+  tr.prosody.styleWord = () => (tr.prosody.voice?.verdict === 'other' ? { ...style('normal'), background: 'someone else (voiceprint)' } : style('normal'));
+  await tr.committedTimed(timed('did you see the keynote'));
+  assert.deepEqual(lastLine().words, []);
+  assert.equal(tr.lines.length, 0);
+});
+
+test('no voiceprint model (identify returns null) styles lines as before', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  tr.identify = () => null;
+  wordLevel = () => 'loud';
+  await tr.committedTimed(timed('let us go'));
+  assert.deepEqual(lastLine().words.map((w) => w.level), ['loud', 'loud', 'loud']);
+});
+
+test('a recalibration while the voiceprint runs drops the old line', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  let answer;
+  tr.identify = () => new Promise((resolve) => { answer = resolve; });
+  const done = tr.committedTimed(timed('old judge talking'));
+  tr.resetCaption();
+  answer(verdict('match'));
+  await done;
+  assert.equal(sent.filter((m) => m.type === 'line').length, 0);
+  assert.equal(styledCount, 0);
+});
+
+test('live words wait for the first voiceprint check and disappear if it is someone else', async () => {
+  const tr = make();
+  let answer;
+  tr.prosody.focus = true;
+  tr.identify = () => new Promise((resolve) => { answer = resolve; });
+  tr.at(5); tr.partial('did you');
+  assert.equal(sent.length, 0);                 // not shown before the check
+  answer(verdict('other'));
+  await flush();
+  assert.deepEqual(lastLine().words, []);       // someone else: nothing on screen
+  tr.at(6); tr.partial('did you see');          // a new check starts; the line stays hidden meanwhile
+  assert.deepEqual(lastLine().words, []);
+  answer(verdict('match'));
+  await flush();
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['did', 'you', 'see']);
+});
+
+test('live words are shown at once when there is no voiceprint, or the filter is off', async () => {
+  const tr = make();
+  tr.prosody.focus = true;
+  tr.identify = () => null;
+  tr.at(5); tr.partial('hello there');
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['hello', 'there']);
+  const off = make();
+  off.prosody.focus = false;
+  off.identify = () => { throw new Error('not asked with the filter off'); };
+  off.at(5); off.partial('hello');
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['hello']);
+});
+
+test('live words that sound like someone else (level/pitch) are held back until the line commits', () => {
+  const tr = make();
+  tr.prosody.focus = true;
+  tr.prosody.styleLive = (start, end, n) => Array.from({ length: n }, (_, i) => (i === 1 ? { ...style('normal'), background: 'someone else' } : style('normal')));
+  tr.at(5); tr.partial('we um won');
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['we', 'won']);
+  assert.ok(lastLine().words.every((w) => !('background' in w)));
+});

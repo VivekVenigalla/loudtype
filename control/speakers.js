@@ -54,6 +54,18 @@ export class Speakers extends Prosody {
     this.boundary = this.frames.at(-1)?.t ?? 0;
   }
 
+  /**
+   * Whose word this is, using the line's voiceprint (transcript.js sets `voice`)
+   * when it is sure: 'other' = nobody enrolled, 'match' = that profile.
+   * Otherwise (or on a pause) by pitch and level, see match().
+   */
+  identify(st) {
+    const v = this.focus ? this.voice : null;
+    if (v?.verdict === 'other') return null;
+    if (v?.verdict === 'match' && st?.speech) return v.best;
+    return this.match(st);
+  }
+
   /** Closest plausible calibrated profile. Unknown voiced speech is rejected. */
   match(st) {
     if (!st) return null;
@@ -71,6 +83,11 @@ export class Speakers extends Prosody {
       if (score < distance) { best = i; distance = score; }
     });
     return best;
+  }
+
+  gateRef() {
+    if (!this.multi) return super.gateRef();
+    return this.enrolling ? null : Math.min(...this.profiles.map((p) => p.ref));
   }
 
   gateDb() {
@@ -97,10 +114,13 @@ export class Speakers extends Prosody {
     if (!this.multi) return super.styleWord(text, start, end);
     if (start <= this.boundary) return { ...plain(), background: 'before the current calibration step' };
     const st = this.stats(start, end);
-    const index = this.enrolling ? this.enrollmentIndex : this.match(st);
+    const index = this.enrolling ? this.enrollmentIndex : this.identify(st);
     if (index == null) {
-      this.remember({ word: text, ...st, level: 'normal', delta: null, background: 'no enrolled acoustic profile matched' });
-      return { ...plain(), background: 'no enrolled acoustic profile matched' };
+      const background = this.voice?.verdict === 'other' && this.focus
+        ? `no enrolled voice (voiceprint ${this.voice.score.toFixed(2)})`
+        : 'no enrolled acoustic profile matched';
+      this.remember({ word: text, ...st, level: 'normal', delta: null, background });
+      return { ...plain(), background };
     }
     const p = this.profiles[index];
     p.frames = this.frames;
@@ -109,7 +129,7 @@ export class Speakers extends Prosody {
     if (this.enrolling) {
       // Keep learning until the handoff click: the loudest voice wins (learn()),
       // so chatter transcribed before the person spoke can't become their profile.
-      if (st && !(!st.speech && st.db < this.noiseDb + 3)) p.learn(st);
+      if (st && !(!st.speech && st.db < this.noiseDb + 3)) p.learn(st, start, end);
       p.widthFor(text, start, end); // their speaking pace, for held words later
       this.ref = p.ref;
       this.pitch = p.pitch;

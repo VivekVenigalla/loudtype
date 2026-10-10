@@ -1,9 +1,9 @@
-// One-time download of the on-device emotion model and the Roboto Flex
+// One-time download of the on-device emotion and voiceprint models and the Roboto Flex
 // variable font. After this, Loudtype needs the network only for ElevenLabs.
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EMOTION_MODEL } from '../control/caption.js';
+import { EMOTION_MODEL, VOICE_MODEL } from '../control/caption.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MODEL = EMOTION_MODEL;
@@ -23,6 +23,11 @@ async function download(url, dest, headers = {}) {
 
 for (const f of MODEL_FILES) {
   await download(`https://huggingface.co/${MODEL}/resolve/main/${f}`, join(ROOT, 'models', MODEL, f));
+}
+
+// Voiceprint model (WeSpeaker ResNet34, CC-BY-4.0): captions only the calibrated voices.
+for (const f of ['config.json', 'preprocessor_config.json', 'onnx/model.onnx']) {
+  await download(`https://huggingface.co/${VOICE_MODEL}/resolve/main/${f}`, join(ROOT, 'models', VOICE_MODEL, f));
 }
 
 // Roboto Flex with the weight and width axes, latin subset.

@@ -1,8 +1,14 @@
 // Mic capture. All measuring happens in the audio worklet (exact timing):
 //  - onFrame(t, db, voicing, pitch) every ~33 ms for prosody (loudness, whisper, main speaker)
-//  - onChunk(int16Buffer, t) every 100 ms of 16 kHz PCM for speech-to-text, background gated
-//  - setGate(db): the level speech-to-text needs to hear anything (-Infinity = off)
+//  - onChunk(int16Buffer, t, rawInt16Buffer, rawEnd) every 100 ms of 16 kHz PCM: the background-gated
+//    audio for speech-to-text, and the same audio before the gate (ending at rawEnd) for voiceprints
+//  - setGate(db, unvoicedDb): the level speech-to-text needs to hear anything (-Infinity = off),
+//    and the lower level enough for unvoiced (whisper-like) audio
 // `t` is the AudioContext time at the end of that piece of audio.
+import { Gate } from './gate.js';
+
+const GATE_DELAY_SEC = new Gate({ rate: 16000 }).delaySec; // the worklet's gate, same defaults
+
 export async function startAudio({ onFrame, onChunk }) {
   // Auto gain / noise suppression would flatten exactly the loudness we measure.
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -17,13 +23,13 @@ export async function startAudio({ onFrame, onChunk }) {
   source.connect(worklet);
   worklet.port.onmessage = ({ data }) => {
     if (data.type === 'frame') onFrame(data.t, data.db, data.voicing, data.pitch);
-    else if (data.type === 'chunk') onChunk(data.buf, data.t);
+    else if (data.type === 'chunk') onChunk(data.buf, data.t, data.raw, data.t + GATE_DELAY_SEC);
   };
 
   return {
     ctx,
     track: stream.getAudioTracks()[0], // for the mic report: label and what Chrome actually applied
-    setGate(db) { worklet.port.postMessage({ type: 'gate', db }); },
+    setGate(db, unvoicedDb = db) { worklet.port.postMessage({ type: 'gate', db, unvoicedDb }); },
     stop() {
       worklet.port.onmessage = null;
       source.disconnect();

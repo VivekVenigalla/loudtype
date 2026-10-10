@@ -13,6 +13,8 @@ const LIVE_MIN_WINDOW = 0.35;  // s of audio used to style a newly appeared word
 const UNTIMED_WAIT_MS = 600;   // Scribe sends a plain commit, then a timestamped one
 const DUPLICATE_MS = 3000;     // a plain commit repeating the last final line is ignored
 const PROVISIONAL_WORDS = 4;   // tint a partial line once it has this many words
+const LINE_LEAD = 1.0;         // s of audio before a line's first partial that may hold its first words
+const LIVE_TAIL = 0.2;         // s past the lag-corrected end, in case the lag estimate is long
 
 export class Transcript {
   /**
@@ -22,17 +24,20 @@ export class Transcript {
    * @param {(text: string, levels: string[]) => Promise<{emotion: import('./caption.js').Emotion, confidence: number}> | null} deps.classify
    *        line emotion; returns null while the model is still loading
    * @param {() => import('./caption.js').Emotion | null} deps.mood  mood forced by a hotkey, or null
-   * @param {() => void} [deps.onStyled]  a committed line's words were just measured
+   * @param {(voice: import('./voiceprint-core.js').Verdict | null) => void} [deps.onStyled]  a committed line's words were just measured (with its voiceprint verdict)
    * @param {(line: object, info: object | null) => void} [deps.onFinal]  a line is finished
+   * @param {(start: number, end: number) => Promise<import('./voiceprint-core.js').Verdict | null> | null} [deps.identify]
+   *        whose voice is in that audio (AudioContext s); null/omitted = no voiceprints
    * @param {() => number} [deps.clock]  ms
    */
-  constructor({ prosody, send, classify, mood, onStyled = () => {}, onFinal = () => {}, clock = () => performance.now() }) {
+  constructor({ prosody, send, classify, mood, onStyled = () => {}, onFinal = () => {}, identify = null, clock = () => performance.now() }) {
     this.prosody = prosody;
     this.send = send;
     this.classify = classify;
     this.mood = mood;
     this.onStyled = onStyled;
     this.onFinal = onFinal;
+    this.identify = identify;
     this.clock = clock;
     this.t0 = null;          // AudioContext time of Scribe's time 0 (set by the first audio chunk sent)
     this.origin = null;      // the first connection's t0: exported times count from here
@@ -86,7 +91,12 @@ export class Transcript {
   partial(text) {
     if (this.closed || !text.trim()) return;
     const now = this.prosody.frames.at(-1)?.t ?? 0; // latest audio actually measured
-    if (!this.current) this.current = { id: ++this.lineSeq, text: '', styles: [], seenAt: [], lastAt: now - 0.8, provisional: 'neutral', classifying: false };
+    if (!this.current) {
+      this.current = {
+        id: ++this.lineSeq, text: '', styles: [], seenAt: [], lastAt: now - 0.8, provisional: 'neutral', classifying: false,
+        audioStart: now - this.partialLag() - LINE_LEAD, voice: undefined, checking: false,
+      };
+    }
     const cur = this.current;
     cur.text = text;
 
@@ -104,6 +114,7 @@ export class Transcript {
     cur.styles.length = words.length; // recognizer may drop words when revising
     cur.seenAt.length = words.length;
     cur.lastAt = now;
+    this.checkVoice(cur, now);
     this.emitPartial(cur);
 
     // Provisional tint, one classification at a time.
@@ -122,12 +133,41 @@ export class Transcript {
     }
   }
 
+  /**
+   * Voiceprint of the line so far (one check at a time, ~20 ms). Until the
+   * first answer the line isn't shown, so a stranger's words never flash up;
+   * 'other' takes it off screen. The committed line is checked again in full.
+   */
+  checkVoice(cur, now) {
+    if (!this.identify || !this.prosody.focus || cur.checking) return;
+    const lag = this.partialLag();
+    const pending = this.identify(cur.audioStart, now - lag + LIVE_TAIL);
+    if (!pending) { cur.voice = null; return; }
+    cur.checking = true;
+    pending
+      .catch(() => null)
+      .then((voice) => {
+        cur.checking = false;
+        if (this.current !== cur) return;
+        cur.voice = voice;
+        this.emitPartial(cur);
+      });
+  }
+
   emitPartial(cur) {
     if (this.prosody.suppressCaptions || (this.prosody.requireTimed && this.prosody.focus)) return;
+    const focus = this.prosody.focus;
+    if (focus && this.identify && cur.voice === undefined) return; // first voiceprint check still running
+    const stranger = focus && cur.voice?.verdict === 'other';
+    const words = splitWords(cur.text)
+      .map((word, i) => ({ word, ...(cur.styles[i] || plainWord(word)) }))
+      // Live words whose audio sounds like someone else (level/pitch) wait for the committed line.
+      .filter((w) => !(focus && w.background))
+      .map(({ background, ...w }) => w);
     this.send({
       type: 'line', line: cur.id, final: false, provisional: true,
       emotion: this.mood() ?? cur.provisional, confidence: 0,
-      words: splitWords(cur.text).map((word, i) => ({ word, ...(cur.styles[i] || plainWord(word)) })),
+      words: stranger ? [] : words,
     });
   }
 
@@ -175,15 +215,27 @@ export class Transcript {
     const untimed = timedWords ? null : { id, text, at: this.clock(), emotion: 'neutral', superseded: false };
     if (untimed) this.untimed = untimed;
 
+    // Whose voice is this? (voiceprint, ~20 ms) The verdict guides the styling below.
+    let voice = null;
+    if (timedWords && this.t0 != null && this.identify) {
+      const pending = this.identify(this.t0 + timedWords[0].start, this.t0 + timedWords.at(-1).end);
+      if (pending) {
+        voice = await pending.catch((err) => { console.error(err); return null; });
+        if (generation !== this.generation) return; // recalibrated meanwhile: a different voice now
+      }
+    }
+
     let words;
     if (timedWords && this.t0 != null) {
       this.origin ??= this.t0;
       const shift = this.t0 - this.origin; // > 0 after a reconnect restarted Scribe's clock
+      this.prosody.voice = voice;
       const styled = timedWords.map((w) => ({
         word: w.text.trim(),
         ...this.prosody.styleWord(w.text, this.t0 + w.start, this.t0 + w.end),
         start: w.start + shift, end: w.end + shift,
       })).filter((w) => w.word);
+      this.prosody.voice = null;
       // Words someone else said near the mic (prosody marks them) are dropped.
       // Single-speaker mode drops mostly-background lines. Multiple speakers
       // can change turns inside a commit, so keep each individually matched word.
@@ -194,7 +246,7 @@ export class Transcript {
       // Filtered multi-speaker lines need timings to tell speakers apart; otherwise plain words.
       words = this.prosody.requireTimed && this.prosody.focus ? [] : splitWords(text).map(plainWord);
     }
-    this.onStyled();
+    this.onStyled(voice);
     if (suppress) return; // enrollment phrases teach calibration, never captions or exports
     if (!words.length) { // all someone else: take the line off screen, caption nothing
       this.send({ type: 'line', line: id, final: true, provisional: false, emotion: 'neutral', confidence: 0, words: [] });
