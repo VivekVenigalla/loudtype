@@ -42,7 +42,7 @@ test('after effects: the script parses as JavaScript', () => {
 });
 
 test('after effects: generated code stays ES3 (ExtendScript)', () => {
-  const code = toAfterEffects(LINES).replace(/var data = .*;\n/, '');
+  const code = toAfterEffects(LINES).replace(/var data = .*;\n/, '').replace(/\/\/.*$/gm, ''); // code only
   assert.doesNotMatch(code, /\b(let|const|class)\s/);
   assert.doesNotMatch(code, /=>|`|\.\.\./);
 });
@@ -58,6 +58,15 @@ test('after effects: embeds timing, size, color, icon and markers per line', () 
   assert.deepEqual(data.lines[2].color, [0.357, 0.89, 0.549]); // #5be38c
   assert.equal(data.lines[0].end, 1.2 + 1.5);
   assert.equal(data.duration, 10.4 + 1.5 + 1);
+});
+
+test('after effects: the script is pure ASCII but keeps icons and accents', () => {
+  const lines = [{ ...LINES[1], words: [w('¡olé', 1, 2, 'shout', 1.6), w('naïve😀', 2, 3)] }];
+  const src = toAfterEffects(lines);
+  assert.match(src, /^[\x00-\x7f]*$/, 'non-ASCII character in the .jsx');
+  const data = embeddedData(src);
+  assert.equal(data.lines[0].prefix, '★ ');
+  assert.deepEqual(data.lines[0].words.map((x) => x.w), ['¡olé', 'naïve😀']);
 });
 
 test('after effects: an empty session still makes a valid comp', () => {

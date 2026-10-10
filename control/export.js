@@ -49,6 +49,10 @@ export function highlightLabel(line) {
   return parts.join(' / ');
 }
 
+// JSON with every non-ASCII UTF-16 unit as a \uXXXX escape (valid ES3 string syntax).
+const asciiJson = (value) => JSON.stringify(value)
+  .replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 export function toAfterEffects(lines) {
   const timed = lines.filter((l) => l.words.length);
   const data = {
@@ -66,10 +70,12 @@ export function toAfterEffects(lines) {
   };
 
   // ExtendScript is ES3: var only, no arrow functions, no template literals.
-  return `// Loudtype → After Effects. File > Scripts > Run Script File…
+  // Keep the file pure ASCII: AE may read a .jsx without a BOM in a legacy
+  // encoding, which would garble the icons and any accented words.
+  return `// Loudtype -> After Effects. File > Scripts > Run Script File...
 // Builds editable text layers: word-by-word Source Text, size keyframes, color, highlight markers.
 (function () {
-  var data = ${JSON.stringify(data)};
+  var data = ${asciiJson(data)};
   app.beginUndoGroup("Loudtype import");
   var comp = app.project.items.addComp("Loudtype captions", 1920, 1080, 1, Math.max(1, data.duration), 30);
   var highlights = comp.layers.addNull(data.duration);
