@@ -138,7 +138,8 @@ function scheduleClear() {
   clearTimer = setTimeout(() => {
     for (const [id, l] of lines) {
       l.el.classList.add('fading');
-      setTimeout(() => { if (l.el.classList.contains('fading')) { l.el.remove(); lines.delete(id); } }, 450);
+      // Check it's still this line: after a clear, a new line can reuse the id.
+      setTimeout(() => { if (lines.get(id) === l && l.el.classList.contains('fading')) { l.el.remove(); lines.delete(id); } }, 450);
     }
   }, CLEAR_AFTER_MS);
 }
