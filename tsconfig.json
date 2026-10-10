@@ -1,0 +1,24 @@
+{
+  // Type-checks the DOM-free modules (plain JS + JSDoc, nothing is compiled):
+  // npm run typecheck
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "es2023",
+    "module": "nodenext",
+    "lib": ["es2023", "dom"],
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "control/caption.js",
+    "control/transcript.js",
+    "control/prosody.js",
+    "control/emotion-core.js",
+    "control/features.js",
+    "control/export.js",
+    "control/relay.js",
+    "server-paths.js"
+  ]
+}

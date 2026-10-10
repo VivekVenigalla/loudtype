@@ -18,16 +18,22 @@ export class Transcript {
   /**
    * @param {object} deps
    * @param {import('./prosody.js').Prosody} deps.prosody
-   * @param {(msg: object) => void} deps.send  caption events for the overlay
-   * @param {(text: string, levels: string[]) => Promise<{emotion: string, confidence: number}> | null} deps.classify
+   * @param {(msg: import('./caption.js').LineEvent) => void} deps.send  caption events for the overlay
+   * @param {(text: string, levels: string[]) => Promise<{emotion: import('./caption.js').Emotion, confidence: number}> | null} deps.classify
    *        line emotion; returns null while the model is still loading
-   * @param {() => string | null} deps.mood  mood forced by a hotkey, or null
+   * @param {() => import('./caption.js').Emotion | null} deps.mood  mood forced by a hotkey, or null
    * @param {() => void} [deps.onStyled]  a committed line's words were just measured
    * @param {(line: object, info: object | null) => void} [deps.onFinal]  a line is finished
    * @param {() => number} [deps.clock]  ms
    */
   constructor({ prosody, send, classify, mood, onStyled = () => {}, onFinal = () => {}, clock = () => performance.now() }) {
-    Object.assign(this, { prosody, send, classify, mood, onStyled, onFinal, clock });
+    this.prosody = prosody;
+    this.send = send;
+    this.classify = classify;
+    this.mood = mood;
+    this.onStyled = onStyled;
+    this.onFinal = onFinal;
+    this.clock = clock;
     this.t0 = null;          // AudioContext time of Scribe's time 0 (set by the first audio chunk sent)
     this.origin = null;      // the first connection's t0: exported times count from here
     this.lineSeq = 0;
@@ -170,10 +176,12 @@ export class Transcript {
     }
     this.onStyled();
 
-    const base = { type: 'line', line: id, words };
+    const base = { type: /** @type {const} */ ('line'), line: id, words };
     this.send({ ...base, final: false, provisional: true, emotion: this.mood() ?? provisional, confidence: 0 });
 
-    let emotion = 'neutral', confidence = 0, info = null;
+    /** @type {import('./caption.js').Emotion} */
+    let emotion = 'neutral';
+    let confidence = 0, info = null;
     const pending = this.classify(text, words.map((w) => w.level));
     if (pending) {
       try {
