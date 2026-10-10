@@ -20,7 +20,7 @@ const ui = {
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), focus: $('focus'),
   speakerList: $('speaker-list'),
-  strictness: $('strictness'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
+  strictness: $('strictness'), source: $('source'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -47,6 +47,7 @@ function setStatus(text, kind = '') {
 async function start() {
   ui.start.disabled = true;
   ui.focus.disabled = true; // the mode is fixed for a session
+  ui.source.disabled = true;
   setStatus('Starting…');
   stopReplay?.();
   relay.resetRecording();
@@ -111,6 +112,8 @@ async function start() {
     await openStt(s);
     if (session !== s) return;
     s.audio = await startAudio({
+      source: ui.source.value,
+      onEnded: () => { if (session === s) { setStatus('Tab sharing stopped', 'warn'); stop(); } },
       onFrame: (t, db, voicing, pitch) => s.prosody.push(t, db, voicing, pitch),
       onChunk: (buf, t, raw, rawEnd) => {
         s.voiceprints.ring.push(new Int16Array(raw), rawEnd);
@@ -195,6 +198,7 @@ function stop() {
   lastRecording = relay.recording.slice();
   ui.start.disabled = false;
   ui.focus.disabled = false;
+  ui.source.disabled = false;
   ui.stop.disabled = true;
   if (!ui.status.classList.contains('err')) setStatus('Stopped');
 }

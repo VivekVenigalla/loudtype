@@ -18,6 +18,14 @@ Not built yet: sync mode, stream-safe censoring (`STREAM_SAFE` does nothing), Ar
 
 Tests: `npm test` (no network; starts its own server on a free port).
 
+## Test on a real Twitch/YouTube stream
+
+Set **Source → Tab audio**, click Start, pick the tab playing the stream in
+Chrome's share dialog and tick **Also share tab audio**. You keep hearing it;
+Loudtype captions it like a mic (labeling everyone works well for streams with
+guests). Chrome's "Stop sharing" bar stops the session. Speech-to-text minutes
+come from your ElevenLabs quota, so keep test runs short.
+
 ## Speakers
 
 By default Loudtype **labels everyone**: no calibration, just click Start and talk.
