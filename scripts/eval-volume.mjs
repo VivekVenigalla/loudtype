@@ -107,6 +107,7 @@ const words = await new Promise((resolve) => {
 const FRAME = Math.round(SR * 0.033);
 function run(P, withVoicing) {
   const p = new P();
+  p.focus = false; // one voice in this clip; its -13 dB voiced line would read as someone else
   for (let i = 0; i + FRAME <= audio.length; i += FRAME) {
     const f = frameFeatures(audio.subarray(i, i + FRAME), SR);
     withVoicing ? p.push((i + FRAME) / SR, f.db, f.voicing) : p.push((i + FRAME) / SR, f.db);

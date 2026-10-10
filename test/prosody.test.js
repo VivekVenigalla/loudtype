@@ -13,11 +13,11 @@ const VOICED = 0.7, UNVOICED = 0.1;
 function speaker() {
   const p = new Prosody();
   let t = 0;
-  const frames = (dur, db, voicing) => {
-    for (const end = t + dur - 1e-9; t < end;) { t += FRAME; p.push(t, db, voicing); }
+  const frames = (dur, db, voicing, pitch = 0) => {
+    for (const end = t + dur - 1e-9; t < end;) { t += FRAME; p.push(t, db, voicing, voicing >= 0.45 ? pitch : 0); }
   };
-  const span = (dur, db, voicing) => { frames(0.2, ROOM, 0.05); const start = t; frames(dur, db, voicing); return [start, t]; };
-  const say = (text, { db = NORMAL, voicing = VOICED, dur = 0.3 } = {}) => p.styleWord(text, ...span(dur, db, voicing));
+  const span = (dur, db, voicing, pitch) => { frames(0.2, ROOM, 0.05); const start = t; frames(dur, db, voicing, pitch); return [start, t]; };
+  const say = (text, { db = NORMAL, voicing = VOICED, dur = 0.3, pitch = 0 } = {}) => p.styleWord(text, ...span(dur, db, voicing, pitch));
   const calibrate = () => { for (let i = 0; i < CALIBRATE_WORDS; i++) say('hello'); };
   frames(2, ROOM, 0.05);
   return { p, say, span, calibrate, frames, now: () => t };
@@ -67,8 +67,8 @@ test('an unvoiced word is a whisper even at normal loudness', () => {
   const { say, calibrate } = speaker();
   calibrate();
   assert.equal(say('secret', { voicing: UNVOICED }).level, 'whisper');
-  // ...but not when it's clearly loud (a breathy shout is still a shout).
-  assert.equal(say('HEY', { voicing: UNVOICED, db: NORMAL + 6 }).level, 'loud');
+  // A loud burst with no voice in it (clap, bump, breath on the mic) is not loud.
+  assert.equal(say('(clap)', { voicing: UNVOICED, db: NORMAL + 12 }).level, 'normal');
 });
 
 test('normal words slowly track the speaker; loud words do not move it', () => {
@@ -172,4 +172,83 @@ test('real-mic readings: AirPods shouts are shouts, normal wobble stays normal-i
   for (const d of [8.2, 8.3, 9.0, 9.7, 13.8, 15.2]) assert.equal(say('WOW', { db: NORMAL + d }).level, 'shout', `+${d}`);
   for (const d of [-0.9, 1.5, 2.2, 3.1]) assert.equal(say('word', { db: NORMAL + d }).level, 'normal', `+${d}`);
   assert.notEqual(say('Test', { db: NORMAL + 5.1 }).level, 'shout'); // the one outlier: at most one step up
+});
+
+// ---------- main speaker only ----------
+const HER = 180, HIM = 110; // Hz: a main speaker and someone else nearby (8.5 semitones apart)
+function mainSpeaker(pitch = HER) {
+  const sp = speaker();
+  for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello', { pitch });
+  return sp;
+}
+
+test('calibration learns the main speaker\'s pitch', () => {
+  const { p } = mainSpeaker();
+  assert.equal(p.pitch, HER);
+});
+
+test('a quieter voice at another pitch is someone else and is ignored', () => {
+  const { p, say } = mainSpeaker();
+  const ref = p.ref;
+  const w = say('nearby', { db: NORMAL - 8, pitch: HIM });
+  assert.match(w.background, /someone else/);
+  assert.equal(p.ref, ref); // teaches nothing
+  assert.match(p.last.background, /110 Hz vs your 180 Hz/);
+});
+
+test('the main speaker speaking softly, at their own pitch, is kept', () => {
+  const { say } = mainSpeaker();
+  const soft = say('quiet', { db: NORMAL - 7, pitch: HER * 2 ** (2 / 12) }); // +2 semitones
+  assert.equal(soft.background, undefined);
+  assert.equal(soft.level, 'soft');
+});
+
+test('a clearly voiced word far under normal is someone else, even at the main speaker\'s pitch', () => {
+  const { say } = mainSpeaker();
+  assert.match(say('chatter', { db: NORMAL - 14, pitch: HER }).background, /14\.0 dB under your normal/);
+});
+
+test('whispers are always the main speaker\'s (no voice, so no pitch to check)', () => {
+  const { say } = mainSpeaker();
+  const w = say('psst', { db: NORMAL - 9, voicing: UNVOICED });
+  assert.equal(w.background, undefined);
+  assert.equal(w.level, 'whisper');
+});
+
+test('anything at the main speaker\'s level or louder is theirs, even at a new pitch (shouting raises pitch)', () => {
+  const { say } = mainSpeaker();
+  const shout = say('WON', { db: NORMAL + 11, pitch: HER * 2 ** (9 / 12) });
+  assert.equal(shout.background, undefined);
+  assert.equal(shout.level, 'shout');
+  assert.equal(say('hey', { db: NORMAL - 2, pitch: HIM }).background, undefined); // within 3 dB of normal
+});
+
+test('without pitch, a voiced word is only ruled someone else when far under normal', () => {
+  const { say } = mainSpeaker(0); // no pitch measured during calibration
+  assert.equal(say('far', { db: NORMAL - 14 }).background !== undefined, true);
+  assert.equal(say('soft', { db: NORMAL - 7 }).background, undefined);
+});
+
+test('turning the filter off captions everyone', () => {
+  const { p, say } = mainSpeaker();
+  p.focus = false;
+  assert.equal(say('nearby', { db: NORMAL - 8, pitch: HIM }).background, undefined);
+  assert.equal(p.gateDb(), -Infinity);
+});
+
+test('the audio gate opens just under the main speaker\'s whispers, never into the room noise', () => {
+  const sp = speaker();
+  assert.ok(Math.abs(sp.p.gateDb() - (ROOM + 10)) < 0.01); // before calibration: anything that counts as speech
+  for (let i = 0; i < CALIBRATE_WORDS; i++) sp.say('hello', { pitch: HER });
+  assert.ok(Math.abs(sp.p.gateDb() - (NORMAL - 18)) < 0.01);
+  const close = speaker(); // a quiet room... versus a loud one where the floor is only 20 dB down
+  close.frames(5, NORMAL - 20, 0.05);
+  for (let i = 0; i < CALIBRATE_WORDS; i++) close.say('hello');
+  assert.ok(close.p.gateDb() >= close.p.noiseDb + 6 - 1e-9);
+});
+
+test('the main speaker\'s pitch slowly follows them', () => {
+  const { p, say } = mainSpeaker();
+  for (let i = 0; i < 10; i++) say('word', { pitch: 190 });
+  assert.ok(p.pitch > HER && p.pitch < 190);
 });

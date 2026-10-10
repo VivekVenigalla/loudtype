@@ -1,6 +1,7 @@
 // Mic capture. All measuring happens in the audio worklet (exact timing):
-//  - onFrame(t, db, voicing) every ~33 ms for prosody (loudness, whisper detection)
-//  - onChunk(int16Buffer, t) every 100 ms of 16 kHz PCM for speech-to-text
+//  - onFrame(t, db, voicing, pitch) every ~33 ms for prosody (loudness, whisper, main speaker)
+//  - onChunk(int16Buffer, t) every 100 ms of 16 kHz PCM for speech-to-text, background gated
+//  - setGate(db): the level speech-to-text needs to hear anything (-Infinity = off)
 // `t` is the AudioContext time at the end of that piece of audio.
 export async function startAudio({ onFrame, onChunk }) {
   // Auto gain / noise suppression would flatten exactly the loudness we measure.
@@ -15,13 +16,14 @@ export async function startAudio({ onFrame, onChunk }) {
   const worklet = new AudioWorkletNode(ctx, 'pcm-downsampler', { numberOfOutputs: 0 });
   source.connect(worklet);
   worklet.port.onmessage = ({ data }) => {
-    if (data.type === 'frame') onFrame(data.t, data.db, data.voicing);
+    if (data.type === 'frame') onFrame(data.t, data.db, data.voicing, data.pitch);
     else if (data.type === 'chunk') onChunk(data.buf, data.t);
   };
 
   return {
     ctx,
     track: stream.getAudioTracks()[0], // for the mic report: label and what Chrome actually applied
+    setGate(db) { worklet.port.postMessage({ type: 'gate', db }); },
     stop() {
       worklet.port.onmessage = null;
       source.disconnect();

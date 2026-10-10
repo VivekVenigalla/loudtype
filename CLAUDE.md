@@ -50,6 +50,8 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
 
 **Caption event** sent to the overlay (typed as `CaptionEvent` in `caption.js`): `{type:'line', line, final, provisional, emotion, confidence, words:[{word, level, size, wght, wdth, start?, end?}]}`. Other types: `calib {progress}`, `pack {pack}`, `prompt {text, step, of}`, `clear`.
 
+**Main speaker only** (`IGNORE_BACKGROUND`, checkbox "Ignore background"): calibration also learns the main speaker's pitch (`features.js` now returns `pitch`). Two layers: `gate.js` in the worklet silences audio under max(normal − 18 dB, noise + 6) before Scribe (150 ms lookahead, 350 ms hangover; chunk times shifted by the delay), and `prosody.background()` drops clearly voiced (≥ 50%) words that are > 12 dB under normal, or 3–12 dB under at a pitch outside −5…+7 semitones; whispers (unvoiced) are always kept; a line mostly someone else's is dropped whole. Loud unvoiced bursts (claps, bumps) never read loud. Tests: `test/ballroom*.test.js` (synthetic + real `say` voices via `scripts/scenes.mjs`), `node scripts/eval-ballroom.mjs` (Scribe, ~1 min quota): main speaker 35/35 kept, nearby talker 1/14 captioned (was 14/14). Known limits: in loud chatter the gate stays open (word filter does the work); a same-pitch person leaning in (within 3–12 dB) is captioned; chatter words timed onto a pause (silent path) are kept.
+
 ## Design rules (from the spec; don't break them)
 
 - One baseline. No vertical movement, rotation, shaking or size transitions. The only motion is the ~80 ms fade-in and the optional 108% shout pop.

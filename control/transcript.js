@@ -166,15 +166,25 @@ export class Transcript {
     if (timedWords && this.t0 != null) {
       this.origin ??= this.t0;
       const shift = this.t0 - this.origin; // > 0 after a reconnect restarted Scribe's clock
-      words = timedWords.map((w) => ({
+      const styled = timedWords.map((w) => ({
         word: w.text.trim(),
         ...this.prosody.styleWord(w.text, this.t0 + w.start, this.t0 + w.end),
         start: w.start + shift, end: w.end + shift,
       })).filter((w) => w.word);
+      // Words someone else said near the mic (prosody marks them) are dropped.
+      // Scribe ends a line at each pause, so a line is one person's: if most
+      // of it is someone else, all of it is (catches their borderline words).
+      const others = styled.filter((w) => w.background).length;
+      words = others * 2 > styled.length ? [] : styled.filter((w) => !w.background);
+      if (words.length < styled.length) text = words.map((w) => w.word).join(' ');
     } else {
       words = splitWords(text).map(plainWord); // no timing: unstyled, not exportable
     }
     this.onStyled();
+    if (!words.length) { // all someone else: take the line off screen, caption nothing
+      this.send({ type: 'line', line: id, final: true, provisional: false, emotion: 'neutral', confidence: 0, words: [] });
+      return;
+    }
 
     const base = { type: /** @type {const} */ ('line'), line: id, words };
     this.send({ ...base, final: false, provisional: true, emotion: this.mood() ?? provisional, confidence: 0 });

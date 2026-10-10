@@ -315,3 +315,47 @@ test('word times stay on the session clock across a reconnect (export)', async (
   assert.deepEqual(tr.lines.map((l) => l.words[0].start), [1, 20.5]);
   assert.equal(tr.lines[1].words.at(-1).end, 20.5 + 0.8 + 0.3);
 });
+
+// ---------- someone else near the mic ----------
+test('words someone else said are dropped from the line, its text and its export', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  classifyResult = { emotion: 'happy', confidence: 0.9 };
+  let classified = '';
+  const classify = tr.classify;
+  tr.classify = (text, levels) => { classified = text; return classify(text, levels); };
+  wordLevel = () => 'normal';
+  tr.prosody.styleWord = (text) => (['excuse', 'me'].includes(text) ? { ...style('normal'), background: 'someone else' } : style('normal'));
+  await tr.committedTimed(timed('we excuse me won'));
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['we', 'won']);
+  assert.ok(lastLine().words.every((w) => !('background' in w)));
+  assert.equal(classified, 'we won');
+  assert.equal(tr.lines[0].text, 'we won');
+  assert.equal(finals[0].line.text, 'we won');
+});
+
+test('a line that was all someone else is taken off screen and not captioned', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  classifyResult = { emotion: 'happy', confidence: 0.9 };
+  tr.prosody.styleWord = () => ({ ...style('normal'), background: 'someone else' });
+  tr.at(1); tr.partial('over here');                 // the partial was on screen
+  await tr.committedTimed(timed('over here'));
+  assert.deepEqual(lastLine(), { type: 'line', line: 1, final: true, provisional: false, emotion: 'neutral', confidence: 0, words: [] });
+  assert.equal(finals.length, 0);
+  assert.equal(tr.lines.length, 0);
+  tr.partial('next');
+  assert.equal(lastLine().line, 2);
+});
+
+test('a line that is mostly someone else is dropped whole (their borderline words too)', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  tr.prosody.styleWord = (text) => (['can', 'somebody'].includes(text) ? style('soft') : { ...style('normal'), background: 'someone else' });
+  await tr.committedTimed(timed('can somebody pass me the water'));
+  assert.deepEqual(lastLine().words, []);
+  // ...but one misjudged word in the main speaker's line only loses that word
+  tr.prosody.styleWord = (text) => (text === 'um' ? { ...style('normal'), background: 'someone else' } : style('normal'));
+  await tr.committedTimed(timed('we um won the game'));
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['we', 'won', 'the', 'game']);
+});

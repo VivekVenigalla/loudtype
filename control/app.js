@@ -15,7 +15,7 @@ const ui = {
   newJudge: $('new-judge'), mood: $('mood'), prompt: $('prompt'), promptPrev: $('prompt-prev'),
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
-  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvCopy: $('dv-copy'),
+  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvCopy: $('dv-copy'), focus: $('focus'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -27,7 +27,11 @@ let stopReplay = null;
 let emotionReady = false;
 let forcedMood = null; // creator override from hotkeys; null = automatic
 
-fetch('/config').then((r) => r.json()).then((c) => { config = { ...config, ...c }; }).catch(() => {});
+fetch('/config').then((r) => r.json()).then((c) => {
+  config = { ...config, ...c };
+  ui.focus.checked = config.IGNORE_BACKGROUND !== false;
+  if (session) session.prosody.focus = ui.focus.checked;
+}).catch(() => {});
 
 function setStatus(text, kind = '') {
   ui.status.textContent = text;
@@ -43,7 +47,8 @@ async function start() {
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null };
+  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null };
+  s.prosody.focus = ui.focus.checked;
   s.transcript = new Transcript({
     prosody: s.prosody,
     // A line from an older session can still be classifying after Start; it
@@ -69,7 +74,7 @@ async function start() {
     await openStt(s);
     if (session !== s) return;
     s.audio = await startAudio({
-      onFrame: (t, db, voicing) => s.prosody.push(t, db, voicing),
+      onFrame: (t, db, voicing, pitch) => s.prosody.push(t, db, voicing, pitch),
       onChunk: (buf, t) => {
         if (s.stt?.sendChunk(buf) && s.transcript.t0 == null) s.transcript.t0 = t - 0.1; // t = end of this 100 ms chunk
       },
@@ -92,6 +97,9 @@ async function start() {
   requestAnimationFrame(function meter() {
     if (session !== s) { ui.meter.style.width = '0'; return; }
     ui.meter.style.width = `${Math.round(s.prosody.liveLevel() * 100)}%`;
+    // Keep the background gate at the main speaker's level (it follows calibration and the room).
+    const gate = s.prosody.gateDb();
+    if (gate !== s.gateSent && !(Math.abs(gate - s.gateSent) <= 0.5)) { s.audio.setGate(gate); s.gateSent = gate; }
     if (ui.director.open) showLive(s.prosody);
     requestAnimationFrame(meter);
   });
@@ -209,9 +217,12 @@ function showLive(p) {
   ui.dvLive.style.left = d == null ? '50%' : dvPos(d);
   ui.dvLive.style.opacity = d == null ? 0.25 : 1;
   ui.dvRef.textContent = p.calibrated
-    ? `Your normal level: ${p.ref.toFixed(1)} dBFS (learned from your voice)`
-    : `Learning your normal level… ${Math.round(p.calibration * 100)}%`;
-  ui.dvRoom.textContent = `Room noise: ${p.noiseDb.toFixed(1)} dBFS · quieter than ${(p.noiseDb + 10).toFixed(1)} dBFS doesn't count as speech`;
+    ? `Main speaker: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
+    : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
+  const gate = p.gateDb();
+  ui.dvRoom.textContent = `Room noise: ${p.noiseDb.toFixed(1)} dBFS · ` + (gate === -Infinity
+    ? 'background filter off: speech-to-text hears everything'
+    : `speech-to-text only hears audio over ${gate.toFixed(1)} dBFS`);
 }
 // Auto gain or noise suppression would flatten the loudness Loudtype measures;
 // audio.js asks Chrome to turn them off, and this shows whether it did.
@@ -223,6 +234,7 @@ function showWordInfo(p) {
   const w = p.last;
   if (!w) return;
   if (w.silent) { ui.dvWord.textContent = `Last word "${w.word}": no voice found where it was timed (left normal)`; return; }
+  if (w.background) { ui.dvWord.textContent = `Last word "${w.word}": ignored, ${w.background}`; return; }
   ui.dvWord.textContent = `Last word "${w.word}": ${w.level}` +
     (w.delta != null ? ` · ${w.delta >= 0 ? '+' : ''}${w.delta.toFixed(1)} dB vs normal` : '') +
     ` · voiced ${(w.voiced * 100).toFixed(0)}%${w.voiced < 0.3 ? ' (whisper-like)' : ''}`;
@@ -245,10 +257,11 @@ function micReport(s) {
   return {
     mic: mic.label ?? null,
     chromeApplied: { autoGainControl: mic.autoGainControl, noiseSuppression: mic.noiseSuppression, echoCancellation: mic.echoCancellation, sampleRate: mic.sampleRate },
-    calibrated: p.calibrated, normalDb: r1(p.ref), noiseFloorDb: r1(p.noiseDb), thresholds: THRESHOLDS,
+    calibrated: p.calibrated, normalDb: r1(p.ref), pitchHz: p.pitch && Math.round(p.pitch), noiseFloorDb: r1(p.noiseDb), thresholds: THRESHOLDS,
+    ignoreBackground: p.focus, gateDb: r1(Number.isFinite(p.gateDb()) ? p.gateDb() : null),
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
-    words: p.history.map((w) => ({ word: w.word, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), speech: w.speech, silent: w.silent })),
+    words: p.history.map((w) => ({ word: w.word, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
   };
 }
 ui.dvCopy.onclick = async () => {
@@ -306,6 +319,7 @@ ui.newJudge.onclick = () => {
 };
 
 // ---------- controls ----------
+ui.focus.onchange = () => { if (session) session.prosody.focus = ui.focus.checked; };
 ui.start.onclick = start;
 ui.stop.onclick = stop;
 ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { record: false });
