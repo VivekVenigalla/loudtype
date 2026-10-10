@@ -34,6 +34,7 @@ export class Transcript {
     this.pendingCommit = null;
     this.lastFinal = { text: '', at: 0 };
     this.lags = [];          // measured partial delays (s)
+    this.lines = [];         // finished lines with word timings, for export (memory only)
     this.closed = false;
   }
 
@@ -156,6 +157,8 @@ export class Transcript {
     const forced = this.mood();
     if (forced) { emotion = forced; confidence = 1; }
     this.send({ ...base, final: true, provisional: false, emotion, confidence: +confidence.toFixed(2) });
-    this.onFinal({ line: id, text, emotion, confidence, words }, info);
+    const line = { line: id, text, emotion, confidence, words };
+    if (words.every((w) => typeof w.start === 'number')) this.lines.push(line);
+    this.onFinal(line, info);
   }
 }

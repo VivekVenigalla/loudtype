@@ -205,3 +205,27 @@ test('after close, events are ignored and a waiting plain commit never fires', a
   assert.equal(finals.length, 0);
   assert.equal(sent.length, 1);
 });
+
+test('each session keeps its own timed lines for export', async () => {
+  const a = make(), b = make();
+  a.t0 = 0; b.t0 = 0;
+  await a.committedTimed(timed('first session'));
+  a.committed('no timestamps here');
+  mock.timers.tick(600);
+  await flush();
+  await b.committedTimed(timed('second session'));
+  assert.deepEqual(a.lines.map((l) => l.text), ['first session']); // untimed lines can't be exported
+  assert.deepEqual(b.lines.map((l) => l.text), ['second session']);
+});
+
+test('a line still being classified when the session closes stays in that session', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  let resolve;
+  tr.classify = () => new Promise((r) => { resolve = r; });
+  const done = tr.committedTimed(timed('last words'));
+  tr.close();
+  resolve({ emotion: 'calm', confidence: 0.8 });
+  await done;
+  assert.deepEqual(tr.lines.map((l) => [l.text, l.emotion]), [['last words', 'calm']]);
+});

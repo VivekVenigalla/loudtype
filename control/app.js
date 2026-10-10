@@ -19,8 +19,8 @@ const ui = {
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
 const relay = new Relay();
-let session = null;
-const sessionLines = []; // finished lines with timings, for export only (memory)
+let session = null; // the running session
+let latest = null;  // the newest session, running or stopped: what Export and the log show
 let lastRecording = null;
 let stopReplay = null;
 let emotionReady = false;
@@ -40,23 +40,24 @@ async function start() {
   stopReplay?.();
   relay.resetRecording();
   relay.send({ type: 'clear' });
-  sessionLines.length = 0;
   ui.log.textContent = '';
 
   const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null };
   s.transcript = new Transcript({
     prosody: s.prosody,
-    send: (msg) => relay.send(msg),
+    // A line from an older session can still be classifying after Start; it
+    // must not reach the new session's overlay, log or recording.
+    send: (msg) => { if (latest === s) relay.send(msg); },
     classify: (text, levels) => (emotionReady ? classify(text, levels, config.EMOTION_MIN_CONFIDENCE) : null),
     mood: () => forcedMood,
     onStyled: () => { sendCalib(s); showWordInfo(s.prosody); },
     onFinal: (line, info) => {
+      if (latest !== s) return;
       showLineInfo(line.text, line.emotion, line.confidence, info);
-      if (line.words.every((w) => typeof w.start === 'number')) sessionLines.push(line);
       logLine(line);
     },
   });
-  session = s;
+  session = latest = s;
 
   warmUp().then(() => { emotionReady = true; }).catch((err) => {
     console.error(err);
@@ -154,12 +155,12 @@ ui.saveReplay.onclick = () => {
 
 // ---------- export ----------
 function requireLines() {
-  if (sessionLines.length) return true;
+  if (latest?.transcript.lines.length) return true;
   setStatus('No timed lines to export yet.', 'warn');
   return false;
 }
-ui.srt.onclick = () => { if (requireLines()) download('loudtype.srt', toSrt(sessionLines)); };
-ui.ae.onclick = () => { if (requireLines()) download('loudtype.jsx', toAfterEffects(sessionLines)); };
+ui.srt.onclick = () => { if (requireLines()) download('loudtype.srt', toSrt(latest.transcript.lines)); };
+ui.ae.onclick = () => { if (requireLines()) download('loudtype.jsx', toAfterEffects(latest.transcript.lines)); };
 
 // ---------- Director's View (control panel only, never on stream) ----------
 const DV_RANGE = 20; // live bar shows normal ± 20 dB
