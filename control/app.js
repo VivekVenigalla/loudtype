@@ -2,7 +2,7 @@
 import { startAudio } from './audio.js';
 import { openScribe } from './stt.js';
 import { Prosody, THRESHOLDS } from './prosody.js';
-import { LEVELS } from './caption.js';
+import { Transcript } from './transcript.js';
 import { classify, warmUp } from './emotion.js';
 import { Relay } from './relay.js';
 import { download, toSrt, toAfterEffects } from './export.js';
@@ -43,16 +43,19 @@ async function start() {
   sessionLines.length = 0;
   ui.log.textContent = '';
 
-  const s = {
-    prosody: new Prosody(),
-    audio: null, stt: null,
-    t0: null,             // AudioContext time of STT time 0
-    lineSeq: 0,
-    current: null,        // { id, text, provisional, classifying }
-    pendingCommit: null,
-    lastFinal: { text: '', at: 0 },
-    lags: [],             // measured partial delays (s)
-  };
+  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null };
+  s.transcript = new Transcript({
+    prosody: s.prosody,
+    send: (msg) => relay.send(msg),
+    classify: (text, levels) => (emotionReady ? classify(text, levels, config.EMOTION_MIN_CONFIDENCE) : null),
+    mood: () => forcedMood,
+    onStyled: () => { sendCalib(s); showWordInfo(s.prosody); },
+    onFinal: (line, info) => {
+      showLineInfo(line.text, line.emotion, line.confidence, info);
+      if (line.words.every((w) => typeof w.start === 'number')) sessionLines.push(line);
+      logLine(line);
+    },
+  });
   session = s;
 
   warmUp().then(() => { emotionReady = true; }).catch((err) => {
@@ -63,9 +66,9 @@ async function start() {
   try {
     s.stt = await openScribe({ modelId: config.STT_MODEL_ID, zeroRetention: config.STT_ZERO_RETENTION, vadSilenceSecs: config.VAD_SILENCE_SECS }, {
       onOpen: () => setStatus('Listening', 'ok'),
-      onPartial: (text) => onPartial(s, text),
-      onCommitted: (text) => onCommitted(s, text),
-      onCommittedTimed: (d) => onCommittedTimed(s, d),
+      onPartial: (text) => s.transcript.partial(text),
+      onCommitted: (text) => s.transcript.committed(text),
+      onCommittedTimed: (d) => s.transcript.committedTimed(d),
       onWarning: (msg) => setStatus(`Listening (ElevenLabs: ${msg})`, 'warn'),
       onError: (msg) => { setStatus(msg, 'err'); },
       onClose: (reason) => { if (session === s) { setStatus(`Speech-to-text closed: ${reason}`, 'err'); stop(); } },
@@ -73,7 +76,7 @@ async function start() {
     s.audio = await startAudio({
       onFrame: (t, db, voicing) => s.prosody.push(t, db, voicing),
       onChunk: (buf, t) => {
-        if (s.stt.sendChunk(buf) && s.t0 == null) s.t0 = t - 0.1; // t = end of this 100 ms chunk
+        if (s.stt.sendChunk(buf) && s.transcript.t0 == null) s.transcript.t0 = t - 0.1; // t = end of this 100 ms chunk
       },
     });
   } catch (err) {
@@ -100,7 +103,7 @@ function stop() {
   const s = session;
   session = null;
   if (s) {
-    clearTimeout(s.pendingCommit);
+    s.transcript.close();
     s.stt?.close();
     s.audio?.stop();
   }
@@ -116,126 +119,7 @@ function sendCalib(s) {
   ui.calib.textContent = progress >= 1 ? 'Calibrated to your voice' : `Learning your voice… ${Math.round(progress * 100)}%`;
 }
 
-const splitWords = (text) => text.trim().split(/\s+/).filter(Boolean);
-const plainWord = (word) => ({ word, level: 'normal', ...LEVELS.normal, wdth: 100 });
-// Partials arrive ~1 s after the words were spoken. The real delay is learned
-// from committed word timestamps (median of recent measurements).
-const LAG_DEFAULT = 1.0;
-const LIVE_MIN_WINDOW = 0.35; // s of audio used to style a newly appeared word
-function partialLag(s) {
-  if (s.lags.length < 3) return LAG_DEFAULT;
-  const sorted = [...s.lags].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)];
-}
-
-// ---------- transcript handling ----------
-function onPartial(s, text) {
-  if (session !== s || !text.trim()) return;
-  const now = s.prosody.frames.at(-1)?.t ?? 0; // latest audio actually measured
-  if (!s.current) s.current = { id: ++s.lineSeq, text: '', styles: [], seenAt: [], lastAt: now - 0.8, provisional: 'neutral', classifying: false };
-  const cur = s.current;
-  cur.text = text;
-
-  // Style new words immediately from the audio they most likely came from
-  // (since the previous partial, minus recognizer lag), so a shout is big the
-  // moment it appears instead of after the line commits.
-  const words = splitWords(text);
-  if (words.length > cur.styles.length) {
-    const lag = partialLag(s);
-    const end = now - lag;
-    const start = Math.min(cur.lastAt - lag, end - LIVE_MIN_WINDOW);
-    while (cur.seenAt.length < words.length) cur.seenAt.push(now);
-    cur.styles.push(...s.prosody.styleLive(start, end, words.length - cur.styles.length));
-  }
-  cur.styles.length = words.length; // recognizer may drop words when revising
-  cur.seenAt.length = words.length;
-  cur.lastAt = now;
-  emitPartial(cur);
-
-  // Provisional tint after ~4 words, one classification at a time.
-  if (emotionReady && !cur.classifying && words.length >= 4) {
-    cur.classifying = true;
-    classify(text, cur.styles.map((st) => st.level), config.EMOTION_MIN_CONFIDENCE)
-      .then(({ emotion }) => {
-        if (s.current !== cur) return;
-        cur.provisional = emotion;
-        emitPartial(cur);
-      })
-      .catch(() => {})
-      .finally(() => { cur.classifying = false; });
-  }
-}
-
-function emitPartial(cur) {
-  relay.send({
-    type: 'line', line: cur.id, final: false, provisional: true,
-    emotion: forcedMood ?? cur.provisional, confidence: 0,
-    words: splitWords(cur.text).map((word, i) => ({ word, ...(cur.styles[i] || plainWord(word)) })),
-  });
-}
-
-// Scribe sends the plain commit and the timestamped one; prefer the timestamped.
-function onCommitted(s, text) {
-  if (session !== s) return;
-  if (!text.trim()) { s.current = null; return; }
-  if (text === s.lastFinal.text && performance.now() - s.lastFinal.at < 3000) return;
-  clearTimeout(s.pendingCommit);
-  s.pendingCommit = setTimeout(() => finalize(s, text, null), 600);
-}
-
-function onCommittedTimed(s, { text, words }) {
-  if (session !== s) return;
-  clearTimeout(s.pendingCommit);
-  if (!text.trim() || !words.length) { s.current = null; return; }
-  finalize(s, text, words);
-}
-
-async function finalize(s, text, timedWords) {
-  const id = s.current?.id ?? ++s.lineSeq;
-  const provisional = s.current?.provisional ?? 'neutral';
-  // Learn the partial delay: when each word first showed up vs. when it ended.
-  if (timedWords && s.t0 != null && s.current) {
-    s.current.seenAt.slice(0, timedWords.length).forEach((seen, i) => {
-      const lag = seen - (s.t0 + timedWords[i].end);
-      if (lag > 0.05 && lag < 3) s.lags.push(lag);
-    });
-    s.lags.splice(0, Math.max(0, s.lags.length - 40));
-  }
-  s.current = null;
-  s.lastFinal = { text, at: performance.now() };
-
-  let words;
-  if (timedWords && s.t0 != null) {
-    words = timedWords.map((w) => ({
-      word: w.text.trim(),
-      ...s.prosody.styleWord(w.text, s.t0 + w.start, s.t0 + w.end),
-      start: w.start, end: w.end,
-    })).filter((w) => w.word);
-  } else {
-    words = splitWords(text).map(plainWord); // no timing: unstyled, not exportable
-  }
-  sendCalib(s);
-  showWordInfo(s.prosody);
-
-  const base = { type: 'line', line: id, words };
-  relay.send({ ...base, final: false, provisional: true, emotion: forcedMood ?? provisional, confidence: 0 });
-
-  let emotion = 'neutral', confidence = 0, info = null;
-  if (emotionReady) {
-    try {
-      info = await classify(text, words.map((w) => w.level), config.EMOTION_MIN_CONFIDENCE);
-      ({ emotion, confidence } = info);
-    } catch (err) { console.error(err); }
-  }
-  if (forcedMood) { emotion = forcedMood; confidence = 1; }
-  showLineInfo(text, emotion, confidence, info);
-  relay.send({ ...base, final: true, provisional: false, emotion, confidence: +confidence.toFixed(2) });
-
-  const line = { line: id, text, emotion, confidence, words };
-  if (words.every((w) => typeof w.start === 'number')) sessionLines.push(line);
-  logLine(line);
-}
-
+// ---------- line log ----------
 function logLine(line) {
   const row = document.createElement('div');
   row.className = `row ${line.emotion}`;
@@ -312,7 +196,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, select, textarea') || !(e.key in MOOD_KEYS)) return;
   forcedMood = MOOD_KEYS[e.key];
   ui.mood.textContent = forcedMood ? `Mood forced: ${forcedMood} (press 0 for automatic)` : 'Mood: automatic';
-  if (session?.current) emitPartial(session.current);
+  session?.transcript.refresh();
 });
 
 // Judge prompt cards, shown on the overlay during the table demo.
