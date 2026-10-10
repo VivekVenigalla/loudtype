@@ -42,7 +42,7 @@ async function start() {
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null };
+  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null };
   s.transcript = new Transcript({
     prosody: s.prosody,
     // A line from an older session can still be classifying after Start; it
@@ -65,19 +65,12 @@ async function start() {
   });
 
   try {
-    s.stt = await openScribe({ modelId: config.STT_MODEL_ID, zeroRetention: config.STT_ZERO_RETENTION, vadSilenceSecs: config.VAD_SILENCE_SECS }, {
-      onOpen: () => setStatus('Listening', 'ok'),
-      onPartial: (text) => s.transcript.partial(text),
-      onCommitted: (text) => s.transcript.committed(text),
-      onCommittedTimed: (d) => s.transcript.committedTimed(d),
-      onWarning: (msg) => setStatus(`Listening (ElevenLabs: ${msg})`, 'warn'),
-      onError: (msg) => { setStatus(msg, 'err'); },
-      onClose: (reason) => { if (session === s) { setStatus(`Speech-to-text closed: ${reason}`, 'err'); stop(); } },
-    });
+    await openStt(s);
+    if (session !== s) return;
     s.audio = await startAudio({
       onFrame: (t, db, voicing) => s.prosody.push(t, db, voicing),
       onChunk: (buf, t) => {
-        if (s.stt.sendChunk(buf) && s.transcript.t0 == null) s.transcript.t0 = t - 0.1; // t = end of this 100 ms chunk
+        if (s.stt?.sendChunk(buf) && s.transcript.t0 == null) s.transcript.t0 = t - 0.1; // t = end of this 100 ms chunk
       },
     });
   } catch (err) {
@@ -98,6 +91,41 @@ async function start() {
     if (ui.director.open) showLive(s.prosody);
     requestAnimationFrame(meter);
   });
+}
+
+const STT_RETRIES = 3;
+const STT_FATAL = /auth|quota|unaccepted|terms/i; // errors a reconnect can't fix
+
+async function openStt(s) {
+  const stt = await openScribe({ modelId: config.STT_MODEL_ID, zeroRetention: config.STT_ZERO_RETENTION, vadSilenceSecs: config.VAD_SILENCE_SECS }, {
+    onOpen: () => { s.retries = 0; setStatus('Listening', 'ok'); },
+    onPartial: (text) => s.transcript.partial(text),
+    onCommitted: (text) => s.transcript.committed(text),
+    onCommittedTimed: (d) => s.transcript.committedTimed(d),
+    onWarning: (msg) => setStatus(`Listening (ElevenLabs: ${msg})`, 'warn'),
+    onError: (msg) => { s.lastError = msg; setStatus(msg, 'err'); },
+    onClose: (reason) => sttClosed(s, s.lastError || reason),
+  });
+  if (session !== s) { stt.close(); return; } // stopped while connecting
+  s.stt = stt;
+}
+
+// A dropped connection (network blip, Scribe's session limit) reconnects
+// within the same session, so the judge's calibration and the log survive.
+function sttClosed(s, reason) {
+  if (session !== s) return;
+  if (s.retries >= STT_RETRIES || STT_FATAL.test(reason)) {
+    setStatus(`Speech-to-text closed: ${reason}`, 'err');
+    stop();
+    return;
+  }
+  s.retries++;
+  s.lastError = null;
+  s.transcript.resync();
+  setStatus(`Speech-to-text dropped (${reason}). Reconnecting ${s.retries}/${STT_RETRIES}…`, 'warn');
+  setTimeout(() => {
+    if (session === s) openStt(s).catch((err) => sttClosed(s, err.message || String(err)));
+  }, 1000 * s.retries);
 }
 
 function stop() {

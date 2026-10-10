@@ -29,6 +29,7 @@ export class Transcript {
   constructor({ prosody, send, classify, mood, onStyled = () => {}, onFinal = () => {}, clock = () => performance.now() }) {
     Object.assign(this, { prosody, send, classify, mood, onStyled, onFinal, clock });
     this.t0 = null;          // AudioContext time of Scribe's time 0 (set by the first audio chunk sent)
+    this.origin = null;      // the first connection's t0: exported times count from here
     this.lineSeq = 0;
     this.current = null;     // the line being spoken: { id, text, styles, seenAt, lastAt, provisional, classifying }
     this.pendingCommit = null;
@@ -42,6 +43,17 @@ export class Transcript {
   close() {
     this.closed = true;
     clearTimeout(this.pendingCommit);
+  }
+
+  /**
+   * Scribe reconnected: its clock restarts at the next audio chunk, and the
+   * half-spoken line will never be committed. Calibration and lag are kept.
+   */
+  resync() {
+    clearTimeout(this.pendingCommit);
+    this.t0 = null;
+    this.current = null;
+    this.untimed = null;
   }
 
   /** Re-send the line being spoken (e.g. after a mood hotkey). */
@@ -146,10 +158,12 @@ export class Transcript {
 
     let words;
     if (timedWords && this.t0 != null) {
+      this.origin ??= this.t0;
+      const shift = this.t0 - this.origin; // > 0 after a reconnect restarted Scribe's clock
       words = timedWords.map((w) => ({
         word: w.text.trim(),
         ...this.prosody.styleWord(w.text, this.t0 + w.start, this.t0 + w.end),
-        start: w.start, end: w.end,
+        start: w.start + shift, end: w.end + shift,
       })).filter((w) => w.word);
     } else {
       words = splitWords(text).map(plainWord); // no timing: unstyled, not exportable

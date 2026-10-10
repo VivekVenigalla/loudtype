@@ -286,3 +286,32 @@ test('a late upgrade wins even if the plain version is still classifying', async
   assert.equal(typeof finalsSent[0].words[0].start, 'number');
   assert.deepEqual(finals.map((f) => f.line.emotion), ['calm']);
 });
+
+test('resync after a reconnect: new clock, fresh line, learned lag kept', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  tr.at(12.6); tr.partial('one two three');
+  await tr.committedTimed(timed('one two three'));
+  const lag = tr.partialLag();
+  tr.at(20); tr.partial('cut off mid');
+  tr.committed('cut off mid');
+  tr.resync();
+  mock.timers.tick(1000);
+  await flush();
+  assert.equal(finals.length, 1);       // the cut-off line never finalizes
+  assert.equal(tr.t0, null);            // set again by the next audio chunk sent
+  assert.equal(tr.partialLag(), lag);
+  tr.partial('back again');
+  assert.equal(lastLine().line, 3);     // a new line, not the cut-off one
+});
+
+test('word times stay on the session clock across a reconnect (export)', async () => {
+  const tr = make();
+  tr.t0 = 10;                                     // first Scribe connection
+  await tr.committedTimed(timed('before the drop', 1));
+  tr.resync();
+  tr.t0 = 30;                                     // Scribe's clock restarts 20 s later
+  await tr.committedTimed(timed('after the drop', 0.5));
+  assert.deepEqual(tr.lines.map((l) => l.words[0].start), [1, 20.5]);
+  assert.equal(tr.lines[1].words.at(-1).end, 20.5 + 0.8 + 0.3);
+});
