@@ -464,3 +464,13 @@ test('live words that sound like someone else (level/pitch) are held back until 
   assert.deepEqual(lastLine().words.map((w) => w.word), ['we', 'won']);
   assert.ok(lastLine().words.every((w) => !('background' in w)));
 });
+
+test('the committed line passes how it sounded (tone) to the emotion classifier', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  let got;
+  tr.prosody.toneOf = (start, end, n) => ({ start, end, n });
+  tr.classify = (text, levels, tone) => { got = tone; return Promise.resolve({ emotion: 'happy', confidence: 0.9 }); };
+  await tr.committedTimed(timed('we won it'));
+  assert.deepEqual(got, { start: 11, end: 12.1, n: 3 });
+});

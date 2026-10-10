@@ -49,8 +49,8 @@ export class Transcript {
    * @param {object} deps
    * @param {import('./prosody.js').Prosody} deps.prosody
    * @param {(msg: import('./caption.js').LineEvent) => void} deps.send  caption events for the overlay
-   * @param {(text: string, levels: string[]) => Promise<{emotion: import('./caption.js').Emotion, confidence: number}> | null} deps.classify
-   *        line emotion; returns null while the model is still loading
+   * @param {(text: string, levels: string[], tone?: ReturnType<import('./tone.js').toneFeatures>) => Promise<{emotion: import('./caption.js').Emotion, confidence: number}> | null} deps.classify
+   *        line emotion (tone: how the committed line sounded); returns null while the model is still loading
    * @param {() => import('./caption.js').Emotion | null} deps.mood  mood forced by a hotkey, or null
    * @param {(voice: import('./voiceprint-core.js').Verdict | null) => void} [deps.onStyled]  a committed line's words were just measured (with its voiceprint verdict)
    * @param {(line: object, info: object | null) => void} [deps.onFinal]  a line is finished
@@ -76,6 +76,7 @@ export class Transcript {
     this.untimed = null;     // last line finalized without timestamps: { id, text, at, emotion, superseded }
     this.lags = [];          // measured partial delays (s)
     this.lines = [];         // finished lines with word timings, for export (memory only)
+    this.heard = [];         // last lines as Scribe committed them vs. what was captioned (mic report: where words go missing)
     this.lastSpeaker = null; // label-everyone mode: the last finished line's speaker (1-based)
     this.closed = false;
     this.generation = 0;
@@ -230,6 +231,7 @@ export class Transcript {
   async finalize(text, timedWords, late = null) {
     const suppress = this.prosody.suppressCaptions;
     const generation = this.generation;
+    const rawText = text;
     // A late upgrade belongs to an earlier line: leave the line being spoken alone.
     const cur = late ? null : this.current;
     const id = late?.id ?? cur?.id ?? ++this.lineSeq;
@@ -285,7 +287,11 @@ export class Transcript {
     } else {
       // Filtered multi-speaker lines need timings to tell speakers apart; otherwise plain words.
       words = this.prosody.requireTimed && this.prosody.focus ? [] : splitWords(text).map(plainWord);
+      // Labeling everyone: no timings, no voiceprint; it stays with whoever spoke last (not an unlabeled lane).
+      if (this.prosody.multi) words = words.map((w) => ({ ...w, speaker: this.lastSpeaker ?? 1 }));
     }
+    this.heard.push({ heard: rawText, shown: words.map((w) => w.word).join(' '), timed: !!timedWords });
+    if (this.heard.length > 20) this.heard.shift();
     this.onStyled(voice);
     if (suppress) return; // enrollment phrases teach calibration, never captions or exports
     if (!words.length) { // all someone else: take the line off screen, caption nothing
@@ -301,7 +307,11 @@ export class Transcript {
     /** @type {import('./caption.js').Emotion} */
     let emotion = 'neutral';
     let confidence = 0, info = null;
-    const pending = this.classify(text, words.map((w) => w.level));
+    const timed = words.filter((w) => typeof w.start === 'number');
+    const tone = timed.length && this.t0 != null && this.origin != null
+      ? this.prosody.toneOf?.(this.origin + timed[0].start, this.origin + timed.at(-1).end, timed.length, speaker) ?? null
+      : null;
+    const pending = this.classify(text, words.map((w) => w.level), tone);
     if (pending) {
       try {
         info = await pending;

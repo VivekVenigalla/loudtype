@@ -26,6 +26,7 @@
 
 import { LEVELS } from './caption.js';
 import { VOICED_FRAME } from './features.js';
+import { toneFeatures } from './tone.js';
 
 // dB relative to the speaker's normal level.
 // soft/loud were ±5: normal speech wobbles up to +5.1, so ordinary words jumped size.
@@ -195,6 +196,11 @@ export class Prosody {
       }
     }
     return null;
+  }
+
+  /** How a line sounded against this speaker's normal (tone.js), or null before calibration. */
+  toneOf(start, end, words, _speaker) {
+    return this.calibrated ? toneFeatures(this, start, end, words) : null;
   }
 
   /** dBFS the audio gate needs before speech-to-text hears anything (-Infinity = gate off). */

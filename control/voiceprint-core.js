@@ -28,6 +28,8 @@ export const STRICTNESS = {
  */
 export const DIARIZE = {
   JOIN: 0.4,         // a line this close to a speaker's voiceprint is theirs (eval: same speaker 0.66-0.84, others <= 0.2, similar TTS voices up to 0.59)
+  NEW_BELOW: 0.25,   // only a line under this for everyone heard starts a new speaker; in between it goes to the closest
+                     // (on a MacBook mic a person's own lines scored under 0.4 and kept spawning new speakers, whose lanes pushed words off screen)
   NEW_MIN_SEC: 1.0,  // only a line this long (and voiced) may start a new speaker; shorter ones stay with the last speaker
   MERGE: 0.55,       // two speakers whose voiceprints grow this close were one person: merged
   MAX_SPEAKERS: 8,
@@ -180,16 +182,20 @@ export class Voiceprints {
     scores.forEach((x, i) => { if (x != null && x > score) { score = x; best = i; } });
     if (live) return best >= 0 && score >= DIARIZE.JOIN ? { verdict: 'match', best, score, scores, seconds } : null;
     let index;
-    if (best >= 0 && score >= DIARIZE.JOIN) index = best;
+    if (best >= 0 && score >= DIARIZE.NEW_BELOW) index = best;
     else if (seconds < DIARIZE.NEW_MIN_SEC) return keep('too short to tell: kept with the last speaker', seconds);
     else {
       const unheard = this.speakers.findIndex((sp) => sp.alias == null && !sp.vecs.length); // started by a short line
       index = unheard >= 0 ? unheard : this.speakers.length < DIARIZE.MAX_SPEAKERS ? this.add(prosody, null) : best;
     }
+    // Only confident matches (or a new speaker's first line) shape a voiceprint; a weak match
+    // (NEW_BELOW..JOIN) is labeled but would blur it toward someone else.
     const sp = this.speakers[index];
-    sp.vecs.push(vec);
-    if (sp.vecs.length > DIARIZE.LEARN_MAX) sp.vecs.shift();
-    this.merge(prosody);
+    if (index !== best || score >= DIARIZE.JOIN) {
+      sp.vecs.push(vec);
+      if (sp.vecs.length > DIARIZE.LEARN_MAX) sp.vecs.shift();
+      this.merge(prosody);
+    }
     const verdict = { verdict: /** @type {const} */ ('match'), best: this.resolve(index), score: Math.max(score, 0), scores, seconds, isNew: index !== best };
     this.last = verdict;
     return verdict;

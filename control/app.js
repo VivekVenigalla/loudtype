@@ -64,7 +64,7 @@ async function start() {
     // A line from an older session can still be classifying after Start; it
     // must not reach the new session's overlay, log or recording.
     send: (msg) => { if (latest === s) relay.send(msg); },
-    classify: (text, levels) => (emotionReady ? classify(text, levels, config.EMOTION_MIN_CONFIDENCE) : null),
+    classify: (text, levels, tone) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE) : null),
     mood: () => forcedMood,
     identify: (start, end, live) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end, live) : null),
     onStyled: (voice) => {
@@ -349,6 +349,8 @@ function micReport(s) {
       recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, speaker: p.multi ? v.best + 1 : undefined, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
       lastLine: s.voice && { verdict: s.voice.verdict, score: Math.round(s.voice.score * 100) / 100, scores: s.voice.scores.map((x) => (x == null ? null : Math.round(x * 100) / 100)), seconds: r1(s.voice.seconds), reason: s.voice.reason } },
     speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, mergedInto: s.voiceprints.resolve(i) !== i ? s.voiceprints.resolve(i) + 1 : undefined, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
+    // What speech-to-text committed vs. what reached the overlay, per line (empty "shown" = dropped by Loudtype).
+    heardVsShown: latest?.transcript.heard ?? [],
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
     words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),

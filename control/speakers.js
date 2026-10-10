@@ -60,6 +60,13 @@ export class Speakers extends Prosody {
     return p;
   }
 
+  /** Tone against the line's speaker's own normal (their profile). */
+  toneOf(start, end, words, speaker) {
+    if (!this.auto) return super.toneOf(start, end, words, speaker);
+    const p = speaker ? this.profiles[speaker - 1] : null;
+    return p?.calibrated ? p.toneOf(start, end, words) : null;
+  }
+
   styleLive(start, end, n) {
     if (!this.auto) return super.styleLive(start, end, n);
     const p = this.profile(this.activeIndex);
