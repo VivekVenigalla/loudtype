@@ -4,6 +4,12 @@
   font-weight: 100 1000;
   font-stretch: 25% 151%;
 }
+/* Subtitle font choices (OFL, from @fontsource via npm run setup). */
+@font-face { font-family: 'Comic Neue'; src: url('/fonts/ComicNeue-300.woff2') format('woff2'); font-weight: 100 349; }
+@font-face { font-family: 'Comic Neue'; src: url('/fonts/ComicNeue-400.woff2') format('woff2'); font-weight: 350 599; }
+@font-face { font-family: 'Comic Neue'; src: url('/fonts/ComicNeue-700.woff2') format('woff2'); font-weight: 600 1000; }
+@font-face { font-family: 'Inter'; src: url('/fonts/Inter.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Atkinson Hyperlegible Next'; src: url('/fonts/AtkinsonHyperlegibleNext.woff2') format('woff2'); font-weight: 200 800; }
 
 :root {
   --base: 56px;           /* normal word size */
@@ -12,6 +18,9 @@
   --c-calm: #5be38c;
   --c-angry: #ff4d4d;
   --c-sad: #5aa9ff;
+  --c-surprised: #ff9f43;
+  --c-scared: #b388ff;
+  --c-disgusted: #a8b545;
 }
 .colorblind {
   /* Okabe–Ito, distinguishable for common color-vision deficiencies */
@@ -19,6 +28,9 @@
   --c-calm: #009e73;
   --c-angry: #e66100;
   --c-sad: #56b4e9;
+  --c-surprised: #e69f00;
+  --c-scared: #cc79a7;
+  --c-disgusted: #999933;
 }
 
 html, body {
@@ -37,6 +49,12 @@ body.debug-bg {
   --outline: 0.06em;
   --outline-color: rgba(0, 0, 0, 0.9);
 }
+
+/* Subtitle font (control panel select, or ?font= on the overlay URL). Size, weight,
+   width and the emotion grammar stay the same in every font. */
+body.font-comic    { --font: 'Comic Neue', 'Comic Sans MS', 'Roboto Flex', sans-serif; }
+body.font-pro      { --font: 'Inter', 'Roboto Flex', system-ui, sans-serif; }
+body.font-readable { --font: 'Atkinson Hyperlegible Next', 'Roboto Flex', sans-serif; }
 
 #stage {
   position: absolute;
@@ -75,10 +93,20 @@ body.debug-bg {
 .calm  { color: var(--c-calm); }
 .angry { color: var(--c-angry); }
 .sad   { color: var(--c-sad); }
+.surprised { color: var(--c-surprised); }
+.scared    { color: var(--c-scared); }
+.disgusted { color: var(--c-disgusted); }
+/* Angry words stay a little bigger after their shake (overlay/fx.js); transform, so the row never reflows. */
+.w.angry:not(.provisional) { transform: scale(1.06); }
+/* Sad words stay smaller after they sink (same reason: transform, no reflow). */
+.w.sad:not(.provisional) { transform: scale(0.85); }
 .provisional.happy { color: color-mix(in srgb, var(--c-happy) 55%, white); }
 .provisional.calm  { color: color-mix(in srgb, var(--c-calm) 55%, white); }
 .provisional.angry { color: color-mix(in srgb, var(--c-angry) 55%, white); }
 .provisional.sad   { color: color-mix(in srgb, var(--c-sad) 55%, white); }
+.provisional.surprised { color: color-mix(in srgb, var(--c-surprised) 55%, white); }
+.provisional.scared    { color: color-mix(in srgb, var(--c-scared) 55%, white); }
+.provisional.disgusted { color: color-mix(in srgb, var(--c-disgusted) 55%, white); }
 .icon {
   font-size: 0.7em;
   font-variation-settings: 'wght' 700;
@@ -113,6 +141,7 @@ body.debug-bg {
 .w {
   font-size: calc(1em * var(--size, 1));
   font-variation-settings: 'wght' var(--wght, 450), 'wdth' var(--wdth, 100);
+  font-weight: var(--wght, 450);  /* for fonts with fixed weights (Comic Neue) */
   opacity: var(--op, 1);
   /* No size transition: the only motion is the fade-in and the shout pop. */
 }
@@ -134,6 +163,9 @@ body.debug-bg {
 .w[data-level="shout"] { letter-spacing: -0.01em; }
 .w.enter { animation: fadein 80ms linear both; }
 .w.pop { animation: fadein 80ms linear both, pop 120ms ease-out; }
+
+/* Reduce motion: color, icon and the angry size stay; emotion animations and the shout pop don't play. */
+body.reduce-motion .w.pop { animation: fadein 80ms linear both; }
 
 @keyframes fadein { from { opacity: 0; } to { opacity: var(--op, 1); } }
 @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.08); } 100% { transform: scale(1); } }

@@ -40,7 +40,7 @@ const MIN = 0.7;
 const go = await pipeline('text-classification', EMOTION_MODEL, { dtype: 'q8' });
 // The old SST-2 model is only for comparison; skip it if it isn't downloaded.
 const sst = await pipeline('text-classification', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english', { dtype: 'q8' }).catch(() => null);
-const VAL = { happy: 'pos', calm: 'pos', angry: 'neg', sad: 'neg', neutral: 'neu' };
+const VAL = { happy: 'pos', calm: 'pos', angry: 'neg', sad: 'neg', scared: 'neg', disgusted: 'neg', surprised: 'neu', neutral: 'neu' };
 
 async function score(text, levels) {
   const m = Object.fromEntries((await go(text, { top_k: null })).map((x) => [x.label, x.score]));

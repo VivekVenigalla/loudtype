@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emotion Preview</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    :root { --ui-bg: #14161a; --ui-card: #1d2026; --ui-line: #2c3038; --ui-text: #e8eaee; --ui-dim: #9aa1ad; --ui-accent: #7aa7ff; }
+    html, body { height: auto; overflow: auto; }
+    body { background: var(--ui-bg); color: var(--ui-text); font: 15px/1.45 system-ui, sans-serif; margin: 0; padding: 20px 16px 48px; }
+    header { max-width: 1100px; margin: 0 auto 18px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    header p { margin: 0 0 12px; color: var(--ui-dim); }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+    .bar label { display: inline-flex; gap: 6px; align-items: center; }
+    button, select, textarea { font: inherit; color: var(--ui-text); background: #262a31; border: 1px solid var(--ui-line); border-radius: 6px; padding: 5px 10px; }
+    button { cursor: pointer; } button:hover { border-color: var(--ui-accent); }
+    #grid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap: 14px; }
+    .card { background: var(--ui-card); border: 1px solid var(--ui-line); border-radius: 10px; overflow: hidden; }
+    .card.approved { border-color: #3fae6a; } .card.changes { border-color: #d29b2a; }
+    .head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 4px; }
+    .swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+    .name { font-weight: 650; text-transform: capitalize; }
+    .about { color: var(--ui-dim); padding: 0 12px 8px; font-size: 13px; }
+    .view { position: relative; height: 128px; display: flex; align-items: flex-end; padding: 0 18px 10px; overflow: hidden; }
+    .view .line { --base: 40px; font-family: var(--font); }
+    .bg-checker .view { background: repeating-conic-gradient(#777 0 25%, #aaa 0 50%) 0 0 / 24px 24px; }
+    .bg-dark .view { background: #0b0c0e; }
+    .bg-game .view { background: linear-gradient(160deg, #2b5876 0%, #4e4376 45%, #c0703a 100%); }
+    .bg-light .view { background: #e9e6df; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px 12px; }
+    .actions textarea { flex: 1 1 100%; min-height: 34px; resize: vertical; }
+    .verdict label { margin-right: 10px; }
+    footer { max-width: 1100px; margin: 18px auto 0; color: var(--ui-dim); font-size: 13px; }
+  </style>
+</head>
+<body class="pack-studio bg-game">
+  <header>
+    <h1>Emotion animations</h1>
+    <p>Each emotion plays once when a line's emotion is final. The live overlay uses the same code (overlay/fx.js) and styles.
+      Mark each one, add notes, then <b>Copy feedback</b> and paste it back to Claude.</p>
+    <div class="bar">
+      <button id="play-all">▶ Replay all</button>
+      <label>Font <select id="font"></select></label>
+      <label>Background <select id="bg">
+        <option value="game" selected>Game-like</option><option value="dark">Dark</option>
+        <option value="checker">Transparent (checker)</option><option value="light">Light</option>
+      </select></label>
+      <label><input type="checkbox" id="reduce"> Reduce motion</label>
+      <label><input type="checkbox" id="colorblind"> Colorblind palette</label>
+      <label><input type="checkbox" id="loop"> Loop every 3 s</label>
+      <button id="copy">Copy feedback</button>
+      <span id="msg" role="status"></span>
+    </div>
+  </header>
+  <main id="grid"></main>
+  <footer>"Send to overlay" puts the line on every open overlay (OBS too), so you can check it over a real game.
+    Settings here only change this page; the control panel sets the overlay's font and motion.</footer>
+  <script type="module" src="preview.js"></script>
+</body>
+</html>

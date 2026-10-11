@@ -1,7 +1,7 @@
 // Tone of voice for a caption line, against THIS speaker's normal: how
 // loud, how high, how much the pitch moves, how fast. Pure (no DOM, no model),
 // shared by the app and scripts/eval-emotion-voice.mjs.
-import { decide } from './emotion-core.js';
+import { decide, fuse } from './emotion-core.js';
 
 const VOICED = 0.45;
 
@@ -57,8 +57,8 @@ export const TONE = { PITCH: 0.05, LOUD: 0.03, RANGE: 0.015, RANGE_NORMAL: 9 };
  * even when spoken with feeling: the voice alone can't say happy vs. angry
  * reliably, and a white line beats a wrong color.
  */
-export function decideEmotion(scores, text, features, _voiceScores, minConfidence) {
-  return decide(scores, text, toneEnergy(features), minConfidence);
+export function decideEmotion(scores, text, features, voiceScores, minConfidence) {
+  return fuse(decide(scores, text, toneEnergy(features), minConfidence), voiceScores);
 }
 
 /**

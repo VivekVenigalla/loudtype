@@ -474,3 +474,26 @@ test('the committed line passes how it sounded (tone) to the emotion classifier'
   await tr.committedTimed(timed('we won it'));
   assert.deepEqual(got, { start: 11, end: 12.1, n: 3 });
 });
+
+test('refine: the batch transcript replaces the realtime words, on the same clock', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  tr.refine = (start, end) => {
+    assert.deepEqual([start, end], [11, 11.7]);
+    return Promise.resolve({ text: 'Hello, there.', offset: 10.75, words: [{ text: 'Hello,', start: 0.25, end: 0.5 }, { text: 'there.', start: 0.65, end: 0.95 }] });
+  };
+  await tr.committedTimed(timed('hello their'));
+  const line = lastLine();
+  assert.deepEqual(line.words.map((w) => w.word), ['Hello,', 'there.']);
+  assert.deepEqual(line.words.map((w) => +w.start.toFixed(6)), [1, 1.4]);
+});
+
+test('refine: a failed second pass keeps the realtime words', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  tr.refine = () => Promise.reject(new Error('quota'));
+  const err = console.error; console.error = () => {};
+  await tr.committedTimed(timed('hello there'));
+  console.error = err;
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['hello', 'there']);
+});

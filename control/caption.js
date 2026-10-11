@@ -5,7 +5,7 @@
 /**
  * What the control panel sends the overlay over the relay (`npm run typecheck`).
  * @typedef {'whisper' | 'soft' | 'normal' | 'loud' | 'shout'} Level
- * @typedef {'neutral' | 'happy' | 'calm' | 'angry' | 'sad'} Emotion
+ * @typedef {'neutral' | 'happy' | 'calm' | 'angry' | 'sad' | 'surprised' | 'scared' | 'disgusted'} Emotion
  * @typedef {{ size: number, wght: number }} LevelStyle
  * @typedef {{ level: Level, size: number, wght: number, wdth: number }} WordStyle
  * @typedef {WordStyle & { word: string, start?: number, end?: number, speaker?: number }} CaptionWord
@@ -16,6 +16,8 @@
  * @typedef {LineEvent
  *   | { type: 'calib', progress: number }
  *   | { type: 'pack', pack: string }
+ *   | { type: 'font', font: FontId }
+ *   | { type: 'motion', reduce: boolean }
  *   | { type: 'prompt', text: string, step: number, of: number }
  *   | { type: 'clear' }} CaptionEvent
  */
@@ -34,9 +36,24 @@ export const LEVEL_ORDER = ['whisper', 'soft', 'normal', 'loud', 'shout'];
 
 // Color is never the only signal: every tinted line also gets its icon.
 /** @type {Record<Emotion, string>} */
-export const ICONS = { happy: '★', calm: '●', angry: '▲', sad: '▼', neutral: '' };
+export const ICONS = { happy: '★', calm: '●', angry: '▲', sad: '▼', surprised: '!', scared: '◇', disgusted: '✕', neutral: '' };
 /** @type {Record<Emotion, string>} */
-export const EMOTION_COLORS = { neutral: '#ffffff', happy: '#ffd84d', calm: '#5be38c', angry: '#ff4d4d', sad: '#5aa9ff' };
+export const EMOTION_COLORS = {
+  neutral: '#ffffff', happy: '#ffd84d', calm: '#5be38c', angry: '#ff4d4d', sad: '#5aa9ff',
+  surprised: '#ff9f43', scared: '#b388ff', disgusted: '#a8b545',
+};
+/** @type {Emotion[]} */
+export const EMOTIONS = ['happy', 'calm', 'angry', 'sad', 'surprised', 'scared', 'disgusted', 'neutral'];
+
+// Subtitle fonts (all on this computer, fonts/). overlay/style.css has a .font-<id> rule for each.
+/** @typedef {'flex' | 'comic' | 'pro' | 'readable'} FontId */
+/** @type {Record<FontId, string>} */
+export const FONTS = {
+  flex: 'Roboto Flex (default)',
+  comic: 'Comic Neue (playful)',
+  pro: 'Inter (professional)',
+  readable: 'Atkinson Hyperlegible (easiest to read)',
+};
 
 // GoEmotions (28 labels incl. neutral), run on-device from models/.
 export const EMOTION_MODEL = 'SamLowe/roberta-base-go_emotions-onnx';

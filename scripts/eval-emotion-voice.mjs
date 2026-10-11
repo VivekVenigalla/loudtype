@@ -12,7 +12,7 @@ const ROOT = new URL('..', import.meta.url);
 const imp = (p) => import(new URL(p, ROOT).href);
 const { Prosody } = await imp('control/prosody.js');
 const { frameFeatures } = await imp('control/features.js');
-const { decide, voiceEnergy } = await imp('control/emotion-core.js');
+const { decide, voiceEnergy, fromVoice } = await imp('control/emotion-core.js');
 const { EMOTION_MODEL } = await imp('control/caption.js');
 const tone = await imp('control/tone.js').catch(() => null);
 const T = await imp('node_modules/@huggingface/transformers/dist/transformers.node.mjs');
@@ -26,6 +26,11 @@ const SER_MODEL = 'onnx-community/wav2vec2-base-superb-er-ONNX';
 // Optional, only if downloaded into models/ (tried 2026-10-10: 9/36 alone, no gain; not part of setup).
 const ser = existsSync(fileURLToPath(new URL(`models/${SER_MODEL}/config.json`, ROOT)))
   ? await T.pipeline('audio-classification', SER_MODEL, { dtype: 'q4' })
+  : null;
+// emotion2vec service (emotion2vec/service.py), if running.
+const E2V = `http://127.0.0.1:${process.env.EMOTION2VEC_PORT || 7790}`;
+const e2v = await fetch(`${E2V}/health`).then((r) => r.ok, () => false)
+  ? async (audio) => (await (await fetch(`${E2V}/emotion`, { method: 'POST', body: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength) })).json()).scores
   : null;
 
 const RATE = 16000, FRAME = Math.round(RATE * 0.033);
@@ -71,8 +76,9 @@ for (const [i, m] of manifest.entries()) {
   const levels = spans.map(([a, b]) => p.levelFor(p.stats(a, b)));
   const scores = Object.fromEntries((await text(m.text, { top_k: null })).map((x) => [x.label, x.score]));
   const voiceScores = ser ? Object.fromEntries((await ser(audio, { top_k: null })).map((x) => [x.label, x.score])) : null;
+  const e2vScores = e2v ? await e2v(audio) : null;
   const features = tone ? tone.toneFeatures(p, start, end, words.length) : null;
-  rows.push({ i, ...m, held: i % 2 === 1, levels, scores, voiceScores, features });
+  rows.push({ i, ...m, held: i % 2 === 1, levels, scores, voiceScores, e2vScores, features });
 }
 
 const systems = {
@@ -81,6 +87,10 @@ const systems = {
 if (ser) systems['voice model alone'] = (r) => ({ neu: 'neutral', hap: 'happy', ang: 'angry', sad: 'sad' })[Object.entries(r.voiceScores).sort((a, b) => b[1] - a[1])[0][0]];
 if (tone) {
   systems['new: text + voice tone'] = (r) => tone.decideEmotion(r.scores, r.text, r.features, null, 0.7).emotion;
+  if (e2v) {
+    systems['emotion2vec alone'] = (r) => fromVoice(r.e2vScores, tone.toneEnergy(r.features)).emotion;
+    systems['text + voice tone + emotion2vec'] = (r) => tone.decideEmotion(r.scores, r.text, r.features, r.e2vScores, 0.7).emotion;
+  }
   if (ser) systems['new: text + voice tone + voice model'] = (r) => tone.decideEmotion(r.scores, r.text, r.features, r.voiceScores, 0.7).emotion;
 }
 

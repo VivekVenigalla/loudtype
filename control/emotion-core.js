@@ -34,6 +34,11 @@ const HYPE_MIN = 0.3;        // surprise-ish score needed
 const HYPE_ENERGY = 0.55;    // ...with at least this much voice + text energy
 const HYPE_MAX_NEG = 0.3;
 
+// The finer emotions. A negative line whose bad feeling is mostly fear reads scared, mostly
+// disgust reads disgusted (instead of angry/sad). A line the words leave neutral but that
+// is clearly surprised (and not said with hype energy, which reads happy) reads surprised.
+export const SPECIFIC = { MIN: 0.3, SHARE: 0.5, SURPRISE: 0.45, HYPE_FUN: 0.1 };
+
 const sum = (m, keys) => keys.reduce((a, k) => a + (m[k] || 0), 0);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -63,11 +68,22 @@ export function decide(scores, text, voiceEnergy, minConfidence) {
     const energetic = energy >= 0.5;
     emotion = pos >= neg ? (energetic ? 'happy' : 'calm') : (energetic ? 'angry' : 'sad');
   }
+  if ((emotion === 'angry' || emotion === 'sad') && !slangNeg) {
+    const rawNeg = sum(scores, NEG), fear = sum(scores, ['fear', 'nervousness']), disgust = scores.disgust || 0;
+    if (fear >= SPECIFIC.MIN && fear >= SPECIFIC.SHARE * rawNeg) { emotion = 'scared'; reason = 'mostly fear'; }
+    else if (disgust >= SPECIFIC.MIN && disgust >= SPECIFIC.SHARE * rawNeg) { emotion = 'disgusted'; reason = 'mostly disgust'; }
+  }
   const hype = Object.entries(HYPE).reduce((a, [k, w]) => a + w * (scores[k] || 0), 0);
   if (emotion === 'neutral' && hype >= HYPE_MIN && energy >= HYPE_ENERGY && neg < HYPE_MAX_NEG && !slangNeg) {
-    emotion = 'happy';
-    reason = 'hype (surprise said with energy)';
+    // Pure surprise (nothing excited or amused in it) has its own emotion now.
+    const fun = (scores.excitement || 0) + (scores.amusement || 0);
+    emotion = fun >= SPECIFIC.HYPE_FUN ? 'happy' : 'surprised';
+    reason = fun >= SPECIFIC.HYPE_FUN ? 'hype (surprise said with energy)' : 'surprise said with energy';
     return { emotion, confidence: Math.max(confidence, minConfidence), energy, pos, neg, neu, hype, reason };
+  }
+  const surprise = scores.surprise || 0;
+  if (emotion === 'neutral' && surprise >= SPECIFIC.SURPRISE && neg < HYPE_MAX_NEG && !slangNeg) {
+    return { emotion: 'surprised', confidence: Math.max(surprise, minConfidence), energy, pos, neg, neu, hype, reason: 'surprise' };
   }
   return { emotion, confidence, energy, pos, neg, neu, hype, reason };
 }
@@ -79,4 +95,41 @@ export function voiceEnergy(levels) {
   const loud = levels.filter((l) => l === 'loud' || l === 'shout').length / levels.length;
   const soft = levels.filter((l) => l === 'soft' || l === 'whisper').length / levels.length;
   return clamp(mean + 0.3 * loud - 0.3 * soft, 0, 1);
+}
+
+// emotion2vec (speech emotion from the voice itself, emotion2vec/service.py) labels →
+// Loudtype's emotions. It has no "calm": happy said with low energy reads calm.
+const VOICE_MAP = { angry: 'angry', disgusted: 'disgusted', happy: 'happy', surprised: 'surprised', sad: 'sad', fearful: 'scared' };
+
+/**
+ * @param {Record<string, number>} scores  emotion2vec label → probability
+ * @param {number} [energy]  0..1 (0.5 = the speaker's normal); splits happy from calm
+ * @returns {{ emotion: string, confidence: number, label: string }}
+ */
+export function fromVoice(scores, energy = 0.5) {
+  const by = { happy: 0, angry: 0, sad: 0, surprised: 0, scared: 0, disgusted: 0 };
+  for (const [k, v] of Object.entries(scores)) if (VOICE_MAP[k]) by[VOICE_MAP[k]] += v;
+  const [best, p] = Object.entries(by).sort((a, b) => b[1] - a[1])[0];
+  const label = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  const neu = (scores.neutral || 0) + (scores.other || 0) + (scores['<unk>'] || 0) + (scores.unk || 0);
+  if (p <= neu) return { emotion: 'neutral', confidence: p, label };
+  const emotion = best === 'happy' && energy < 0.42 ? 'calm' : best;
+  return { emotion, confidence: p, label };
+}
+
+// How the voice model joins the words. On the acted set (2026-10-10) the words were right on
+// every line that had emotional words (16/16) and emotion2vec only 7/16 there, so a line the
+// words already colored keeps its color. The voice only speaks up when the words are neutral
+// and it is very sure (it is bimodal: mostly ~1.0 or ~0.0).
+export const VOICE_FUSION = { MIN: 0.9 };
+
+/**
+ * @param {ReturnType<typeof decide>} r  the words' result
+ * @param {Record<string, number> | null} voiceScores  emotion2vec scores (null: service off)
+ */
+export function fuse(r, voiceScores) {
+  if (!voiceScores) return r;
+  const v = fromVoice(voiceScores, r.energy);
+  if (r.emotion !== 'neutral' || v.emotion === 'neutral' || v.confidence < VOICE_FUSION.MIN) return { ...r, voice: v };
+  return { ...r, emotion: v.emotion, confidence: v.confidence, voice: v, reason: `voice sounds ${v.label} (emotion2vec ${v.confidence.toFixed(2)})` };
 }

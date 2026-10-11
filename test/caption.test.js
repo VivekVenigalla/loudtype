@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { LEVELS, LEVEL_ORDER, ICONS, EMOTION_COLORS } from '../control/caption.js';
 
 test('overlay CSS colors match caption.js', () => {
@@ -25,5 +25,34 @@ test('levels grow in size and weight from whisper to shout', () => {
 test('every tinted emotion has an icon (color is never the only signal)', () => {
   for (const emotion of Object.keys(EMOTION_COLORS)) {
     assert.equal(emotion === 'neutral' ? ICONS[emotion] === '' : ICONS[emotion].length > 0, true, emotion);
+  }
+});
+
+test('every emotion has a color, an animation and a CSS color class; every font a rule and a file', async () => {
+  const { EMOTIONS, FONTS } = await import('../control/caption.js');
+  const { FX } = await import('../overlay/fx.js');
+  const css = readFileSync(new URL('../overlay/style.css', import.meta.url), 'utf8');
+  assert.deepEqual(new Set(EMOTIONS), new Set(Object.keys(EMOTION_COLORS)));
+  for (const e of EMOTIONS) {
+    assert.ok(FX[e], `FX.${e} missing`);
+    if (e !== 'neutral') {
+      const frames = typeof FX[e].keyframes === 'function' ? FX[e].keyframes(3) : FX[e].keyframes;
+      assert.ok(FX[e].duration > 0 && frames.length >= 2, `FX.${e} does nothing`);
+      assert.match(css, new RegExp(`\\.${e}\\s*{\\s*color: var\\(--c-${e}\\)`), `.${e} color rule`);
+    }
+  }
+  for (const id of Object.keys(FONTS)) if (id !== 'flex') assert.match(css, new RegExp(`body\\.font-${id}\\s*{`), `font-${id}`);
+  for (const [, file] of css.matchAll(/url\('\/fonts\/([^']+)'\)/g)) {
+    assert.ok(existsSync(new URL(`../fonts/${file}`, import.meta.url)), `fonts/${file} (npm run setup)`);
+  }
+});
+
+test('angry and sad rest at the size their animation ends on (no jump when it finishes)', async () => {
+  const { FX } = await import('../overlay/fx.js');
+  const css = readFileSync(new URL('../overlay/style.css', import.meta.url), 'utf8');
+  for (const e of ['angry', 'sad']) {
+    const rest = css.match(new RegExp(`\\.w\\.${e}:not\\(\\.provisional\\)\\s*{\\s*transform: scale\\(([\\d.]+)\\)`))?.[1];
+    assert.ok(rest, `.w.${e} rest size`);
+    assert.match(/** @type {string} */ (FX[e].keyframes.at(-1).transform), new RegExp(`scale\\(${rest}\\)`), e);
   }
 });

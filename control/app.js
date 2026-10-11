@@ -4,11 +4,12 @@ import { openScribe } from './stt.js';
 import { THRESHOLDS } from './prosody.js';
 import { Speakers } from './speakers.js';
 import { Transcript } from './transcript.js';
-import { classify, warmUp } from './emotion.js';
+import { classify, warmUp, voiceScores } from './emotion.js';
 import { embed, loadVoiceModel } from './voiceprint.js';
 import { AudioRing, Voiceprints, VOICE, STRICTNESS, DIARIZE } from './voiceprint-core.js';
 import { Relay } from './relay.js';
 import { download, toSrt, toAfterEffects } from './export.js';
+import { FONTS } from './caption.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -20,6 +21,7 @@ const ui = {
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), dvAudio: $('dv-audio'), focus: $('focus'),
   speakerList: $('speaker-list'),
+  font: $('font'), reduceMotion: $('reduce-motion'),
   strictness: $('strictness'), source: $('source'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
 
@@ -36,6 +38,8 @@ let forcedMood = null; // creator override from hotkeys; null = automatic
 fetch('/config').then((r) => r.json()).then((c) => {
   config = { ...config, ...c };
   ui.focus.checked = config.IGNORE_BACKGROUND === true; // default: label everyone
+  applyLookDefaults(); // config's CAPTION_FONT / REDUCE_MOTION, unless chosen in this browser
+  sendLook();
 }).catch(() => {});
 
 function setStatus(text, kind = '') {
@@ -65,9 +69,13 @@ async function start() {
     // A line from an older session can still be classifying after Start; it
     // must not reach the new session's overlay, log or recording.
     send: (msg) => { if (latest === s) relay.send(msg); },
-    classify: (text, levels, tone, taught) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE, taught) : null),
+    classify: (text, levels, tone, taught, span) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE, taught,
+      // emotion2vec hears the line's audio (pre-gate, from memory), when its local service runs
+      config.EMOTION2VEC && span ? voiceScores(s.voiceprints.ring.slice(span.start - 0.1, span.end + 0.2)) : null) : null),
     // While a "teach" card is up, the line shows the mood being taught (feedback that it was heard).
     mood: () => forcedMood ?? teachingMood(),
+    // Second pass through ElevenLabs' batch Scribe v2 (more accurate words; ~1 s later, fine for delayed streams).
+    refine: config.STT_REFINE ? (start, end) => refineLine(s.voiceprints.ring, start, end) : null,
     identify: (start, end, live) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end, live) : null),
     onStyled: (voice) => {
       if (voiceReady) s.voiceprints.refresh(s.prosody); // learn the voiceprint from the calibration words
@@ -369,6 +377,16 @@ function micReport(s) {
     words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
   };
 }
+// One committed line's audio (pre-gate, from memory) through /transcribe → batch Scribe v2.
+async function refineLine(ring, start, end) {
+  const offset = Math.max(start - 0.25, ring.endT - ring.total / ring.rate); // never before the first sample heard
+  const audio = ring.slice(offset, end + 0.35);
+  if (!audio || audio.length < 16000 * 0.3) return null;
+  const r = await fetch('/transcribe', { method: 'POST', body: audio.slice().buffer });
+  if (!r.ok) throw new Error(`Second-pass transcript failed: ${(await r.json().catch(() => ({}))).error || r.status}`);
+  return { ...(await r.json()), offset };
+}
+
 // The last 60 s the app heard (16 kHz mono WAV), saved only on click: real audio to tune emotion and speakers on.
 ui.dvAudio.onclick = () => {
   const s = session ?? latest;
@@ -400,7 +418,7 @@ ui.dvCopy.onclick = async () => {
 
 // ---------- creator controls ----------
 // Hotkeys force a mood (e.g. a fake rage bit goes red on cue); 0 = automatic.
-const MOOD_KEYS = { 1: 'happy', 2: 'calm', 3: 'angry', 4: 'sad', 0: null };
+const MOOD_KEYS = { 1: 'happy', 2: 'calm', 3: 'angry', 4: 'sad', 5: 'surprised', 6: 'scared', 7: 'disgusted', 0: null };
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return; // Cmd+1 switches tabs, it isn't a mood
   if (e.target.closest('input, select, textarea') || !(e.key in MOOD_KEYS)) return;
@@ -460,6 +478,28 @@ ui.sensitivity.oninput = () => {
 ui.start.onclick = start;
 ui.stop.onclick = stop;
 ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { record: false });
+
+// Look: subtitle font and reduce motion. Remembered in this browser (a convenience only);
+// sent to overlays when they change, when the relay connects, and when an overlay (re)loads.
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+for (const [id, name] of Object.entries(FONTS)) ui.font.add(new Option(name, id));
+function sendLook() {
+  relay.send({ type: 'font', font: /** @type {import('./caption.js').FontId} */ (ui.font.value) }, { record: false });
+  relay.send({ type: 'motion', reduce: ui.reduceMotion.checked }, { record: false });
+}
+function applyLookDefaults() {
+  ui.font.value = store.get('loudtype.font') ?? (config.CAPTION_FONT in FONTS ? config.CAPTION_FONT : 'flex');
+  const saved = store.get('loudtype.reduceMotion');
+  ui.reduceMotion.checked = saved != null ? saved === '1' : !!config.REDUCE_MOTION;
+}
+applyLookDefaults();
+ui.font.onchange = () => { store.set('loudtype.font', ui.font.value); sendLook(); };
+ui.reduceMotion.onchange = () => { store.set('loudtype.reduceMotion', ui.reduceMotion.checked ? '1' : '0'); sendLook(); };
+relay.onOpen = sendLook;
+relay.onMessage = (msg) => { if (msg?.type === 'hello') sendLook(); };
 
 // Debugging from the console: loudtype.session().prosody, etc.
 window.loudtype = { session: () => session, micReport: () => latest && micReport(latest) };

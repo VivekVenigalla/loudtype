@@ -1,6 +1,7 @@
 // Overlay: draws what the control panel sends. Holds no state worth saving,
 // so OBS can reload it at any time.
-import { ICONS } from '../control/caption.js';
+import { ICONS, FONTS } from '../control/caption.js';
+import { FX, playFx } from './fx.js';
 
 const CLEAR_AFTER_MS = 6000; // a speaker's captions fade after this much of their silence
 
@@ -11,9 +12,27 @@ const params = new URLSearchParams(location.search);
 if (params.has('bg')) document.body.classList.add('debug-bg');
 
 let settings = { SHOUT_POP: true, COLORBLIND_PALETTE: false };
+// Look: subtitle font and reduce motion. The control panel sets them live; for OBS they can
+// also be fixed in the URL (?font=comic&motion=reduce), which wins over everything else.
+const look = { font: params.get('font'), reduce: params.has('motion') ? params.get('motion') === 'reduce' : null };
+const systemReduce = matchMedia('(prefers-reduced-motion: reduce)');
+let reduceMotion = false;
+function setFont(font) {
+  font = params.get('font') || font;
+  if (!(font in FONTS)) font = 'flex';
+  for (const id of Object.keys(FONTS)) document.body.classList.toggle(`font-${id}`, id === font);
+}
+function setReduceMotion(reduce) {
+  reduceMotion = look.reduce ?? (!!reduce || systemReduce.matches);
+  document.body.classList.toggle('reduce-motion', reduceMotion);
+}
+setFont(look.font);
+setReduceMotion(false);
 fetch('/config').then((r) => r.json()).then((c) => {
   settings = { ...settings, ...c };
   document.body.classList.toggle('colorblind', !!settings.COLORBLIND_PALETTE);
+  setFont(settings.CAPTION_FONT);
+  setReduceMotion(settings.REDUCE_MOTION);
 }).catch(() => {});
 
 // Roll-up captions, one lane per speaker ("thread"): words keep appending to
@@ -94,8 +113,8 @@ function tokens(lane) {
   const out = [];
   for (const id of [...lane.lines.keys()].sort((a, b) => a - b)) {
     const l = lane.lines.get(id);
-    if (l.emotion !== 'neutral' && ICONS[l.emotion]) out.push({ key: `${id}:icon`, icon: ICONS[l.emotion], ...l });
-    l.words.forEach((w, i) => out.push({ key: `${id}:${i}`, w, ...l }));
+    if (l.emotion !== 'neutral' && ICONS[l.emotion]) out.push({ key: `${id}:icon`, icon: ICONS[l.emotion], index: 0, ...l });
+    l.words.forEach((w, i) => out.push({ key: `${id}:${i}`, w, index: i, ...l }));
   }
   return out;
 }
@@ -109,6 +128,7 @@ function spanFor(lane, t, fresh) {
     lane.spans.set(t.key, span);
   }
   span.className = `${t.icon ? 'icon' : 'w'} ${t.emotion}${t.provisional ? ' provisional' : ''}`;
+  let enterDelay = 0;
   if (t.icon) {
     span.textContent = t.icon;
   } else {
@@ -122,9 +142,17 @@ function spanFor(lane, t, fresh) {
     span.style.setProperty('--op', w.level === 'whisper' ? 0.85 : 1);
     const shout = w.level === 'shout' && settings.SHOUT_POP;
     if (isNew || (shout && prevLevel !== 'shout')) {
-      span.style.animationDelay = isNew ? `${Math.min(fresh.n++ * STAGGER_MS, STAGGER_MAX_MS)}ms` : '0ms';
+      // Emotions that play "together" (surprised) also fade in together.
+      const together = !t.provisional && FX[t.emotion]?.together;
+      enterDelay = isNew && !together ? Math.min(fresh.n++ * STAGGER_MS, STAGGER_MAX_MS) : 0;
+      span.style.animationDelay = `${enterDelay}ms`;
       span.classList.add(shout ? 'pop' : 'enter');
     }
+  }
+  // The line's emotion is final (not the live guess): play its animation once per emotion.
+  if (!t.provisional && span.dataset.fx !== t.emotion) {
+    span.dataset.fx = t.emotion;
+    if (!reduceMotion) playFx(span, t.emotion, { index: t.index, icon: !!t.icon, delay: enterDelay });
   }
   return span;
 }
@@ -200,6 +228,7 @@ function clearAll() {
 }
 
 addEventListener('resize', layoutAll);
+document.fonts?.addEventListener('loadingdone', layoutAll); // a font that just loaded changes word widths
 
 function handle(msg) {
   switch (msg.type) {
@@ -212,6 +241,8 @@ function handle(msg) {
       document.body.className = document.body.className.replace(/pack-\S+/g, '').trim();
       document.body.classList.add(`pack-${msg.pack}`);
       break;
+    case 'font': setFont(msg.font); layoutAll(); break; // a new font has new word widths
+    case 'motion': setReduceMotion(msg.reduce); break;
     case 'clear': clearAll(); break;
     case 'prompt': {
       const card = document.getElementById('prompt');
@@ -225,6 +256,7 @@ function handle(msg) {
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/relay`);
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'hello' })); // the control panel answers with the current look
   ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (err) { console.error(err); } };
   ws.onclose = () => setTimeout(connect, 1000);
 }
