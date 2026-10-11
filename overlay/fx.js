@@ -67,7 +67,7 @@ export const FX = {
   },
   calm: {
     about: 'breathes: the words spread apart and come back together, twice, with a soft glow',
-    duration: 3200, stagger: 0, easing: 'ease-in-out',
+    duration: 3200, stagger: 0, together: true, easing: 'ease-in-out', // in step, or the gaps wobble
     keyframes: breathe,
   },
   surprised: {
