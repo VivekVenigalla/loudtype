@@ -3,3 +3,6 @@ config.js
 .DS_Store
 # Downloaded by `npm run setup` (196 MB)
 models/
+eval-data/
+emotion2vec/.venv/
+__pycache__/

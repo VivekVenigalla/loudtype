@@ -171,3 +171,19 @@ test('pages are cross-origin isolated (multi-threaded emotion model)', { skip },
     assert.equal(res.headers['cross-origin-embedder-policy'], 'require-corp', path);
   }
 });
+
+test('/transcribe and /emotion2vec refuse other sites and GETs (no quota spent)', { skip }, async () => {
+  for (const path of ['/transcribe', '/emotion2vec']) {
+    assert.equal((await get(path)).status, 403);
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers: { Origin: 'https://evil.example' }, body: new Uint8Array(8) });
+    assert.equal(r.status, 403);
+  }
+  await assertAlive();
+});
+
+test('/emotion2vec answers 503 when the service is off, and a bad body never crashes', { skip }, async () => {
+  const origin = `http://127.0.0.1:${port}`;
+  const odd = await fetch(`${origin}/emotion2vec`, { method: 'POST', headers: { Origin: origin }, body: new Uint8Array(3) });
+  assert.equal(odd.status, 503);
+  await assertAlive();
+});

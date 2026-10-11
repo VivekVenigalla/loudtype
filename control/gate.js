@@ -5,13 +5,19 @@
 // the hangover after the last loud frame so word endings aren't clipped.
 // Output length equals input length, so Scribe's clock stays continuous;
 // pcm-worklet.js subtracts `delaySec` from chunk times. Pure, so tests drive it.
+//
+// Whispers have no voice, so they can sit far below the main speaker's normal
+// (on a laptop mic, barely over the room). The worklet reports each unvoiced
+// frame with unvoiced(db); those open the gate from a lower threshold for a
+// short hangover. Someone else's voiced speech still needs the main threshold.
 
 export class Gate {
-  constructor({ rate = 16000, frameSec = 0.02, lookaheadSec = 0.15, hangoverSec = 0.35, fadeSec = 0.01 } = {}) {
+  constructor({ rate = 16000, frameSec = 0.02, lookaheadSec = 0.15, hangoverSec = 0.35, unvoicedHangoverSec = 0.15, fadeSec = 0.01 } = {}) {
     this.rate = rate;
     this.frameLen = Math.round(rate * frameSec);
     this.delay = Math.round(rate * lookaheadSec);
     this.hangover = Math.round(rate * hangoverSec);
+    this.unvoicedHangover = Math.round(rate * unvoicedHangoverSec);
     this.fadeStep = 1 / Math.max(1, Math.round(rate * fadeSec));
     this.line = new Float32Array(this.delay); // delay line
     this.pos = 0;
@@ -21,12 +27,24 @@ export class Gate {
     this.openUntil = -1;          // last output sample index that passes
     this.gain = 0;
     this.thresholdDb = -Infinity; // passes everything until a threshold is set
+    this.unvoicedDb = -Infinity;
   }
 
   get delaySec() { return this.delay / this.rate; }
 
-  /** dBFS (20 ms RMS) a frame needs to open the gate; -Infinity = gate off. */
-  setThreshold(db) { this.thresholdDb = db; }
+  /**
+   * dBFS (20 ms RMS) a frame needs to open the gate; -Infinity = gate off.
+   * `unvoicedDb`: what an unvoiced (whisper-like) frame needs, see unvoiced().
+   */
+  setThreshold(db, unvoicedDb = db) {
+    this.thresholdDb = db;
+    this.unvoicedDb = Math.min(db, unvoicedDb);
+  }
+
+  /** The audio just pushed had an unvoiced frame at `db` (measured by the worklet). */
+  unvoiced(db) {
+    if (db >= this.unvoicedDb) this.openUntil = Math.max(this.openUntil, this.n + this.unvoicedHangover);
+  }
 
   /** One input sample in, one delayed (and possibly silenced) sample out. */
   push(x) {

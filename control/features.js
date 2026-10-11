@@ -10,6 +10,9 @@
 //   pitch    Hz of that periodicity (only meaningful when voiced); tells
 //            different speakers apart.
 
+/** Frame voicing at/above this counts as voiced (prosody, gate). */
+export const VOICED_FRAME = 0.45;
+
 const PITCH_MIN_HZ = 70;
 const PITCH_MAX_HZ = 400;
 const WORK_RATE = 12000; // downsample before autocorrelation to keep it cheap

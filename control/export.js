@@ -31,13 +31,19 @@ function span(line) {
   return { start, end };
 }
 
+/** "S2: " when the session labeled several speakers, else nothing. */
+export function speakerPrefix(line, lines) {
+  const several = new Set(lines.map((l) => l.speaker).filter(Boolean)).size > 1;
+  return several && line.speaker ? `S${line.speaker}: ` : '';
+}
+
 export function toSrt(lines) {
   const timed = lines.filter((l) => l.words.length);
   return timed.map((l, i) => {
     const { start, end } = span(l);
     const next = timed[i + 1] ? span(timed[i + 1]).start : Infinity;
     const out = Math.min(end + LINGER, Math.max(end, next - 0.05));
-    return `${i + 1}\n${srtTime(start)} --> ${srtTime(out)}\n${l.text}\n`;
+    return `${i + 1}\n${srtTime(start)} --> ${srtTime(out)}\n${speakerPrefix(l, timed)}${l.text}\n`;
   }).join('\n');
 }
 

@@ -4,9 +4,12 @@ import { openScribe } from './stt.js';
 import { THRESHOLDS } from './prosody.js';
 import { Speakers } from './speakers.js';
 import { Transcript } from './transcript.js';
-import { classify, warmUp } from './emotion.js';
+import { classify, warmUp, voiceScores } from './emotion.js';
+import { embed, loadVoiceModel } from './voiceprint.js';
+import { AudioRing, Voiceprints, VOICE, STRICTNESS, DIARIZE } from './voiceprint-core.js';
 import { Relay } from './relay.js';
 import { download, toSrt, toAfterEffects } from './export.js';
+import { FONTS } from './caption.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -16,8 +19,10 @@ const ui = {
   newJudge: $('new-judge'), mood: $('mood'), prompt: $('prompt'), promptPrev: $('prompt-prev'),
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
-  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvCopy: $('dv-copy'), focus: $('focus'),
-  speakerCount: $('speaker-count'), speakerNext: $('speaker-next'), speakerList: $('speaker-list'),
+  dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), dvAudio: $('dv-audio'), focus: $('focus'),
+  speakerList: $('speaker-list'),
+  font: $('font'), reduceMotion: $('reduce-motion'),
+  strictness: $('strictness'), source: $('source'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -27,12 +32,14 @@ let latest = null;  // the newest session, running or stopped: what Export and t
 let lastRecording = null;
 let stopReplay = null;
 let emotionReady = false;
+let voiceReady = false; // voiceprint model loaded
 let forcedMood = null; // creator override from hotkeys; null = automatic
 
 fetch('/config').then((r) => r.json()).then((c) => {
   config = { ...config, ...c };
-  ui.focus.checked = config.IGNORE_BACKGROUND !== false;
-  if (session) session.prosody.focus = ui.focus.checked;
+  ui.focus.checked = config.IGNORE_BACKGROUND === true; // default: label everyone
+  applyLookDefaults(); // config's CAPTION_FONT / REDUCE_MOTION, unless chosen in this browser
+  sendLook();
 }).catch(() => {});
 
 function setStatus(text, kind = '') {
@@ -42,28 +49,55 @@ function setStatus(text, kind = '') {
 
 // ---------- session ----------
 async function start() {
-  if (!ui.speakerCount.reportValidity()) return;
-  const count = Number(ui.speakerCount.value);
   ui.start.disabled = true;
-  ui.speakerCount.disabled = true;
+  ui.focus.disabled = true; // the mode is fixed for a session
+  ui.source.disabled = true;
   setStatus('Starting…');
   stopReplay?.();
   relay.resetRecording();
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Speakers(count), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null };
-  s.prosody.focus = ui.focus.checked;
+  const s = { prosody: new Speakers({ auto: !ui.focus.checked }), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null, voice: null };
+  // Voiceprints: only the calibrated voices are captioned. Audio stays in memory (last 60 s).
+  s.voiceprints = new Voiceprints({ embed, ring: new AudioRing() });
+  s.voiceprints.strictness = ui.strictness.value;
+  s.prosody.sensitivity = Number(ui.sensitivity.value);
+  s.voiceHistory = []; // last lines' voiceprint verdicts, for the mic report
   s.transcript = new Transcript({
     prosody: s.prosody,
     // A line from an older session can still be classifying after Start; it
     // must not reach the new session's overlay, log or recording.
     send: (msg) => { if (latest === s) relay.send(msg); },
-    classify: (text, levels) => (emotionReady ? classify(text, levels, config.EMOTION_MIN_CONFIDENCE) : null),
-    mood: () => forcedMood,
-    onStyled: () => { sendCalib(s); showWordInfo(s.prosody); },
-    onFinal: (line, info) => {
+    classify: (text, levels, tone, taught, span) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE, taught,
+      // emotion2vec hears the line's audio (pre-gate, from memory), when its local service runs
+      config.EMOTION2VEC && span ? voiceScores(s.voiceprints.ring.slice(span.start - 0.1, span.end + 0.2)) : null) : null),
+    // While a "teach" card is up, the line shows the mood being taught (feedback that it was heard).
+    mood: () => forcedMood ?? teachingMood(),
+    // Second pass through ElevenLabs' batch Scribe v2 (more accurate words; ~1 s later, fine for delayed streams).
+    refine: config.STT_REFINE ? (start, end) => refineLine(s.voiceprints.ring, start, end) : null,
+    identify: (start, end, live) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end, live) : null),
+    onStyled: (voice) => {
+      if (voiceReady) s.voiceprints.refresh(s.prosody); // learn the voiceprint from the calibration words
+      if (voice) {
+        s.voice = voice;
+        s.voiceHistory.push(voice);
+        if (s.voiceHistory.length > 20) s.voiceHistory.shift();
+      }
+      sendCalib(s);
+      showWordInfo(s.prosody);
+      showVoice(s);
+    },
+    onFinal: (line, info, tone) => {
       if (latest !== s) return;
+      const teach = PROMPTS[promptIdx]?.teach;
+      const book = s.prosody.toneBookFor(line.speaker);
+      if (teach && book.teach(teach, tone)) {
+        const who = line.speaker ? `S${line.speaker}'s` : 'your';
+        if (teach === 'neutral') setStatus(`Learned ${who} normal voice`, 'ok');
+        else if (book.isUsable(teach)) setStatus(`Learned ${who} ${teach} voice ✓ (moods it can hear now: ${book.usable.join(', ')})`, 'ok');
+        else setStatus(`That ${teach} sounded too close to ${who} normal voice. Exaggerate it and say it again.`, 'warn');
+      }
       showLineInfo(line.text, line.emotion, line.confidence, info);
       logLine(line);
     },
@@ -74,13 +108,23 @@ async function start() {
     console.error(err);
     setStatus('Emotion model failed to load; lines stay white', 'warn');
   });
+  loadVoiceModel().then(() => {
+    voiceReady = true;
+    if (session === s) s.voiceprints.refresh(s.prosody);
+  }).catch((err) => {
+    console.error(err);
+    setStatus('Voiceprint model failed to load (run npm run setup); filtering by loudness and pitch only', 'warn');
+  });
 
   try {
     await openStt(s);
     if (session !== s) return;
     s.audio = await startAudio({
+      source: ui.source.value,
+      onEnded: () => { if (session === s) { setStatus('Tab sharing stopped', 'warn'); stop(); } },
       onFrame: (t, db, voicing, pitch) => s.prosody.push(t, db, voicing, pitch),
-      onChunk: (buf, t) => {
+      onChunk: (buf, t, raw, rawEnd) => {
+        s.voiceprints.ring.push(new Int16Array(raw), rawEnd);
         if (s.stt?.sendChunk(buf) && s.transcript.t0 == null) s.transcript.t0 = t - 0.1; // t = end of this 100 ms chunk
       },
     });
@@ -104,7 +148,13 @@ async function start() {
     ui.meter.style.width = `${Math.round(s.prosody.liveLevel() * 100)}%`;
     // Keep the background gate at the main speaker's level (it follows calibration and the room).
     const gate = s.prosody.gateDb();
-    if (gate !== s.gateSent && !(Math.abs(gate - s.gateSent) <= 0.5)) { s.audio.setGate(gate); s.gateSent = gate; }
+    const unvoiced = s.prosody.gateUnvoicedDb();
+    const moved = (a, b) => a !== b && !(Math.abs(a - b) <= 0.5);
+    if (moved(gate, s.gateSent) || moved(unvoiced, s.gateUnvoicedSent)) {
+      s.audio.setGate(gate, unvoiced);
+      s.gateSent = gate;
+      s.gateUnvoicedSent = unvoiced;
+    }
     if (ui.director.open) showLive(s.prosody);
     requestAnimationFrame(meter);
   });
@@ -155,9 +205,8 @@ function stop() {
   }
   lastRecording = relay.recording.slice();
   ui.start.disabled = false;
-  ui.speakerCount.disabled = false;
-  ui.speakerNext.disabled = true;
-  ui.speakerNext.hidden = true;
+  ui.focus.disabled = false;
+  ui.source.disabled = false;
   ui.stop.disabled = true;
   if (!ui.status.classList.contains('err')) setStatus('Stopped');
 }
@@ -168,37 +217,23 @@ function sendCalib(s) {
   const progress = s.prosody.calibration;
   relay.send({ type: 'calib', progress });
   if (p.multi) {
-    ui.calib.textContent = p.enrolling
-      ? p.enrollmentReady
-        ? `Speaker ${p.enrollmentIndex + 1} ready. Pause, then continue.`
-        : `Speaker ${p.enrollmentIndex + 1} of ${p.profiles.length}: say “Hi, I am here to talk with everyone today” in your normal voice. Everyone else stays quiet.`
-      : `${p.profiles.length} speakers calibrated. You can take turns speaking.`;
-    ui.speakerNext.hidden = !p.enrolling;
-    ui.speakerNext.disabled = !p.enrollmentReady;
-    ui.speakerNext.textContent = p.enrollmentIndex + 1 === p.profiles.length ? 'Begin conversation' : 'Calibrate next speaker';
-    ui.speakerList.textContent = p.profiles.map((profile, i) =>
-      `Speaker ${i + 1}: ${profile.calibrated && profile.pitch ? 'ready' : `${Math.round(profile.calibration * 100)}%`}`
+    const heard = p.profiles.map((profile, i) => ({ profile, i })).filter(({ i }) => s.voiceprints.resolve(i) === i);
+    ui.calib.textContent = heard.length ? `Labeling everyone: ${heard.length} voice${heard.length > 1 ? 's' : ''} heard` : 'Labeling everyone: start talking (no calibration needed)';
+    ui.speakerList.textContent = heard.map(({ profile, i }) =>
+      `S${i + 1}: ${profile.calibrated ? `normal ${profile.ref.toFixed(0)} dBFS` : `learning loudness ${Math.round(profile.calibration * 100)}%`}`
     ).join(' · ');
     return;
   }
   ui.speakerList.textContent = '';
-  ui.speakerNext.hidden = true;
   ui.calib.textContent = progress >= 1 ? 'Calibrated to your voice' : `Learning your voice… ${Math.round(progress * 100)}%`;
 }
-
-ui.speakerNext.onclick = () => {
-  if (!session?.prosody.advance()) return;
-  session.transcript.resetCaption();
-  relay.send({ type: 'clear' }, { record: false });
-  sendCalib(session);
-};
 
 // ---------- line log ----------
 function logLine(line) {
   const row = document.createElement('div');
   row.className = `row ${line.emotion}`;
   row.dataset.line = line.line;
-  row.textContent = `[${line.emotion} ${line.confidence.toFixed(2)}] ` +
+  row.textContent = `${line.speaker ? `S${line.speaker} ` : ''}[${line.emotion} ${line.confidence.toFixed(2)}] ` +
     line.words.map((w) => (w.level === 'normal' ? w.word : `${w.word}(${w.level}${w.wdth > 100 ? ',w' + w.wdth : ''})`)).join(' ');
   const old = ui.log.querySelector(`[data-line="${line.line}"]`); // a late timestamped commit re-finalizes a line
   if (old) old.replaceWith(row);
@@ -241,25 +276,58 @@ ui.ae.onclick = () => { if (requireLines()) download('loudtype.jsx', toAfterEffe
 // ---------- Director's View (control panel only, never on stream) ----------
 const DV_RANGE = 20; // live bar shows normal ± 20 dB
 const dvPos = (d) => `${Math.max(0, Math.min(100, 50 + (d / DV_RANGE) * 50))}%`;
-ui.dvTicks.innerHTML = Object.entries(THRESHOLDS)
-  .map(([name, d]) => `<span class="tick" style="left:${dvPos(d)}">${name}<br>${d > 0 ? '+' : ''}${d} dB</span>`).join('')
-  + `<span class="tick mid" style="left:50%">normal</span>`;
+function showTicks() {
+  const k = Number(ui.sensitivity.value);
+  ui.dvTicks.innerHTML = Object.entries(THRESHOLDS).map(([name, d0]) => {
+    const d = Math.round((d0 / k) * 10) / 10;
+    return `<span class="tick" style="left:${dvPos(d)}">${name}<br>${d > 0 ? '+' : ''}${d} dB</span>`;
+  }).join('') + `<span class="tick mid" style="left:50%">normal</span>`;
+}
+showTicks();
 
 function showLive(p) {
   const d = p.liveDelta();
   ui.dvLive.style.left = d == null ? '50%' : dvPos(d);
   ui.dvLive.style.opacity = d == null ? 0.25 : 1;
-  if (p.multi && p.enrolling) {
-    ui.dvRef.textContent = `Calibrating speaker ${p.enrollmentIndex + 1} of ${p.profiles.length}; everyone else should stay quiet.`;
+  if (p.multi) {
+    const a = p.profiles[p.activeIndex];
+    ui.dvRef.textContent = !a ? 'Labeling everyone: nobody heard yet'
+      : a.calibrated ? `S${p.activeIndex + 1} talking: their normal ${a.ref.toFixed(1)} dBFS (learned from their voice)`
+      : `S${p.activeIndex + 1} talking: learning their loudness… ${Math.round(a.calibration * 100)}%`;
   } else {
-  ui.dvRef.textContent = p.calibrated
-    ? `${p.multi ? `Speaker ${p.activeIndex + 1}` : 'Main speaker'}: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
-    : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
+    ui.dvRef.textContent = p.calibrated
+      ? `Main speaker: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
+      : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
   }
   const gate = p.gateDb();
+  const snr = p.calibrated ? p.ref - p.noiseDb : null;
   ui.dvRoom.textContent = `Room noise: ${p.noiseDb.toFixed(1)} dBFS · ` + (gate === -Infinity
     ? 'background filter off: speech-to-text hears everything'
-    : `speech-to-text only hears audio over ${gate.toFixed(1)} dBFS`);
+    : `speech-to-text only hears voices over ${gate.toFixed(1)} dBFS (whispers over ${p.gateUnvoicedDb().toFixed(1)})`)
+    + (snr != null && snr < LOW_SNR_DB ? ` · voice only ${snr.toFixed(0)} dB over the room (built-in mic?): the voiceprint does the filtering; a headset is better` : '');
+}
+const LOW_SNR_DB = 20;
+const thresholdsOf = (s, v) => {
+  const t = STRICTNESS[s.voiceprints.strictness];
+  return v.seconds >= VOICE.LONG_SEC ? t : { MATCH: t.MATCH_SHORT, OTHER: t.OTHER_SHORT };
+};
+
+// Voiceprint status: how many voices are enrolled and the last line's verdict.
+function showVoice(s) {
+  const p = s.prosody;
+  if (!voiceReady) { ui.dvVoice.textContent = 'Voiceprint: loading model…'; return; }
+  if (p.multi) {
+    const v = s.voice;
+    ui.dvVoice.textContent = `Voiceprint: labeling everyone` + (!v ? '' : ` · last line: S${v.best + 1}${v.isNew ? ' (new voice)' : ''}`
+      + (v.reason ? ` (${v.reason})` : ` (similarity ${v.score.toFixed(2)}; same speaker ≥ ${DIARIZE.JOIN})`));
+    return;
+  }
+  const n = s.voiceprints.count(p), of = p.multi ? p.profiles.length : 1;
+  const v = s.voice;
+  const who = (i) => (p.multi ? `speaker ${i + 1}` : 'you');
+  ui.dvVoice.textContent = `Voiceprint: ${n}/${of} enrolled` + (!v ? '' : v.reason
+    ? ` · last line: unsure (${v.reason})`
+    : ` · last line: ${v.verdict === 'match' ? `${who(v.best)} ✓` : v.verdict === 'other' ? 'someone else ✗' : 'unsure (kept)'} (${v.score.toFixed(2)}; ${s.voiceprints.strictness}: dropped under ${thresholdsOf(s, v).OTHER})`);
 }
 // Auto gain or noise suppression would flatten the loudness Loudtype measures;
 // audio.js asks Chrome to turn them off, and this shows whether it did.
@@ -294,14 +362,47 @@ function micReport(s) {
   return {
     mic: mic.label ?? null,
     chromeApplied: { autoGainControl: mic.autoGainControl, noiseSuppression: mic.noiseSuppression, echoCancellation: mic.echoCancellation, sampleRate: mic.sampleRate },
-    calibrated: p.calibrated, normalDb: r1(p.ref), pitchHz: p.pitch && Math.round(p.pitch), noiseFloorDb: r1(p.noiseDb), thresholds: THRESHOLDS,
+    calibrated: p.calibrated, normalDb: r1(p.ref), pitchHz: p.pitch && Math.round(p.pitch), noiseFloorDb: r1(p.noiseDb), thresholds: p.thresholds(),
     ignoreBackground: p.focus, gateDb: r1(Number.isFinite(p.gateDb()) ? p.gateDb() : null),
-    speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
+    gateUnvoicedDb: r1(Number.isFinite(p.gateUnvoicedDb()) ? p.gateUnvoicedDb() : null),
+    sensitivity: p.sensitivity,
+    voiceprints: { modelReady: voiceReady, strictness: s.voiceprints.strictness, enrolled: s.voiceprints.count(p),
+      recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, speaker: p.multi ? v.best + 1 : undefined, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
+      lastLine: s.voice && { verdict: s.voice.verdict, score: Math.round(s.voice.score * 100) / 100, scores: s.voice.scores.map((x) => (x == null ? null : Math.round(x * 100) / 100)), seconds: r1(s.voice.seconds), reason: s.voice.reason } },
+    speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, mergedInto: s.voiceprints.resolve(i) !== i ? s.voiceprints.resolve(i) + 1 : undefined, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
+    // What speech-to-text committed vs. what reached the overlay, per line (empty "shown" = dropped by Loudtype).
+    heardVsShown: latest?.transcript.heard ?? [],
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
     words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
   };
 }
+// One committed line's audio (pre-gate, from memory) through /transcribe → batch Scribe v2.
+async function refineLine(ring, start, end) {
+  const offset = Math.max(start - 0.25, ring.endT - ring.total / ring.rate); // never before the first sample heard
+  const audio = ring.slice(offset, end + 0.35);
+  if (!audio || audio.length < 16000 * 0.3) return null;
+  const r = await fetch('/transcribe', { method: 'POST', body: audio.slice().buffer });
+  if (!r.ok) throw new Error(`Second-pass transcript failed: ${(await r.json().catch(() => ({}))).error || r.status}`);
+  return { ...(await r.json()), offset };
+}
+
+// The last 60 s the app heard (16 kHz mono WAV), saved only on click: real audio to tune emotion and speakers on.
+ui.dvAudio.onclick = () => {
+  const s = session ?? latest;
+  const ring = s?.voiceprints.ring;
+  const audio = ring?.endT != null ? ring.slice(ring.endT - 60, ring.endT) : null;
+  if (!audio?.length) return setStatus('Start listening first, then save the audio.', 'warn');
+  const data = new DataView(new ArrayBuffer(44 + audio.length * 2));
+  const str = (o, t) => [...t].forEach((c, i) => data.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); data.setUint32(4, 36 + audio.length * 2, true); str(8, 'WAVEfmt '); data.setUint32(16, 16, true);
+  data.setUint16(20, 1, true); data.setUint16(22, 1, true); data.setUint32(24, 16000, true); data.setUint32(28, 32000, true);
+  data.setUint16(32, 2, true); data.setUint16(34, 16, true); str(36, 'data'); data.setUint32(40, audio.length * 2, true);
+  audio.forEach((v, i) => data.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
+  download('loudtype-last-60s.wav', data.buffer, 'audio/wav');
+  setStatus(`Saved ${Math.round(audio.length / 16000)} s of audio to your Downloads.`, 'ok');
+};
+
 ui.dvCopy.onclick = async () => {
   const s = session ?? latest;
   if (!s) return setStatus('Start listening first, then copy the mic report.', 'warn');
@@ -317,7 +418,7 @@ ui.dvCopy.onclick = async () => {
 
 // ---------- creator controls ----------
 // Hotkeys force a mood (e.g. a fake rage bit goes red on cue); 0 = automatic.
-const MOOD_KEYS = { 1: 'happy', 2: 'calm', 3: 'angry', 4: 'sad', 0: null };
+const MOOD_KEYS = { 1: 'happy', 2: 'calm', 3: 'angry', 4: 'sad', 5: 'surprised', 6: 'scared', 7: 'disgusted', 0: null };
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return; // Cmd+1 switches tabs, it isn't a mood
   if (e.target.closest('input, select, textarea') || !(e.key in MOOD_KEYS)) return;
@@ -326,19 +427,26 @@ document.addEventListener('keydown', (e) => {
   session?.transcript.refresh();
 });
 
-// Judge prompt cards, shown on the overlay during the table demo.
+// Judge prompt cards, shown on the overlay during the table demo. Cards with
+// `teach` record how the judge's voice sounds in that mood (tone.js ToneBook):
+// afterwards their voice alone can color a line, even with neutral words.
+const SAME = '“The next round starts in two minutes.”';
 const PROMPTS = [
-  'Say hi normally: “Hi, I\'m one of the judges at Hacklanta today.”',
-  'Now whisper: “this is the best day ever”',
-  'Now SHOUT it: “THIS IS THE BEST DAY EVER!”',
-  'Hold a word as long as you can: “nooooooo”',
-  'Complain about something (traffic, Mondays, a boss fight). Say it like you mean it.',
-  'Free play: talk like a streamer.',
+  { text: 'Say hi normally: “Hi, I\'m one of the judges at Hacklanta today.”', teach: 'neutral' },
+  { text: `Teach it HAPPY: say ${SAME} like it's amazing news`, teach: 'happy' },
+  { text: `Teach it ANGRY: say ${SAME} like you're furious`, teach: 'angry' },
+  { text: `Teach it SAD: say ${SAME} like it's heartbreaking`, teach: 'sad' },
+  { text: 'Now pick a mood and say: “The meeting is at three on Tuesday.” Watch the color.' },
+  { text: 'Now whisper: “this is the best day ever”' },
+  { text: 'Now SHOUT it: “THIS IS THE BEST DAY EVER!”' },
+  { text: 'Hold a word as long as you can: “nooooooo”' },
+  { text: 'Free play: talk like a streamer.' },
 ];
 let promptIdx = -1;
+const teachingMood = () => { const t = PROMPTS[promptIdx]?.teach; return t && t !== 'neutral' ? t : null; };
 function showPrompt(i) {
   promptIdx = Math.max(-1, Math.min(PROMPTS.length - 1, i));
-  const text = promptIdx >= 0 ? PROMPTS[promptIdx] : '';
+  const text = promptIdx >= 0 ? PROMPTS[promptIdx].text : '';
   ui.prompt.textContent = text ? `${promptIdx + 1}/${PROMPTS.length}: ${text}` : '(hidden)';
   relay.send({ type: 'prompt', text, step: promptIdx + 1, of: PROMPTS.length }, { record: false });
 }
@@ -350,7 +458,10 @@ ui.promptHide.onclick = () => showPrompt(-1);
 ui.newJudge.onclick = () => {
   if (session) {
     session.prosody.recalibrate();
+    session.voiceprints.resetSpeakers();
     session.transcript.resetCaption();
+    session.voice = null; // the voiceprint is relearned from the new calibration
+    showVoice(session);
     sendCalib(session);
   }
   relay.send({ type: 'clear' }, { record: false });
@@ -358,10 +469,37 @@ ui.newJudge.onclick = () => {
 };
 
 // ---------- controls ----------
-ui.focus.onchange = () => { if (session) session.prosody.focus = ui.focus.checked; };
+ui.strictness.onchange = () => { if (session) { session.voiceprints.strictness = ui.strictness.value; showVoice(session); } };
+ui.sensitivity.oninput = () => {
+  ui.sensitivityValue.textContent = Number(ui.sensitivity.value).toFixed(1);
+  if (session) session.prosody.sensitivity = Number(ui.sensitivity.value);
+  showTicks();
+};
 ui.start.onclick = start;
 ui.stop.onclick = stop;
 ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { record: false });
+
+// Look: subtitle font and reduce motion. Remembered in this browser (a convenience only);
+// sent to overlays when they change, when the relay connects, and when an overlay (re)loads.
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+for (const [id, name] of Object.entries(FONTS)) ui.font.add(new Option(name, id));
+function sendLook() {
+  relay.send({ type: 'font', font: /** @type {import('./caption.js').FontId} */ (ui.font.value) }, { record: false });
+  relay.send({ type: 'motion', reduce: ui.reduceMotion.checked }, { record: false });
+}
+function applyLookDefaults() {
+  ui.font.value = store.get('loudtype.font') ?? (config.CAPTION_FONT in FONTS ? config.CAPTION_FONT : 'flex');
+  const saved = store.get('loudtype.reduceMotion');
+  ui.reduceMotion.checked = saved != null ? saved === '1' : !!config.REDUCE_MOTION;
+}
+applyLookDefaults();
+ui.font.onchange = () => { store.set('loudtype.font', ui.font.value); sendLook(); };
+ui.reduceMotion.onchange = () => { store.set('loudtype.reduceMotion', ui.reduceMotion.checked ? '1' : '0'); sendLook(); };
+relay.onOpen = sendLook;
+relay.onMessage = (msg) => { if (msg?.type === 'hello') sendLook(); };
 
 // Debugging from the console: loudtype.session().prosody, etc.
 window.loudtype = { session: () => session, micReport: () => latest && micReport(latest) };

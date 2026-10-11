@@ -4,19 +4,28 @@
 // through Loudtype's background gate. Each transcribed word is then styled
 // (with or without the main-speaker filter) and attributed to whoever was
 // speaking at its timestamp. Needs the API key; uses ~1 min of Scribe audio.
-// Usage: node scripts/eval-ballroom.mjs
+// Usage: node scripts/eval-ballroom.mjs [--mac] [--only-gated] [--scribe key=value ...]
+//   --mac          the scene as a MacBook built-in mic hears it (scenes.mjs MAC_LEVEL)
+//   --only-gated   skip the unfiltered run (half the quota)
+//   --scribe k=v   extra Scribe query parameters, e.g. vad_threshold=0.6 filter_background_audio=true
 import { voicesScene, gateScene, writeWav } from './scenes.mjs';
 
 const ROOT = new URL('..', import.meta.url);
 const { CONFIG } = await import(new URL('config.js', ROOT));
 const { Prosody } = await import(new URL('control/prosody.js', ROOT));
-const { frameFeatures } = await import(new URL('control/features.js', ROOT));
+const { frameFeatures, VOICED_FRAME } = await import(new URL('control/features.js', ROOT));
 const { Gate } = await import(new URL('control/gate.js', ROOT));
 
-const scene = await voicesScene();
-const deps = { Prosody, frameFeatures, Gate };
+const args = process.argv.slice(2);
+const mac = args.includes('--mac');
+const onlyGated = args.includes('--only-gated');
+const extra = args.flatMap((a, i) => (args[i - 1] === '--scribe' ? [a.split('=')] : []));
+const scene = await voicesScene({ mac });
+const deps = { Prosody, frameFeatures, Gate, VOICED_FRAME };
 const gated = gateScene(scene, deps);
-if (process.argv[2]) { writeWav(process.argv[2], scene.audio, scene.rate); console.log(`wrote ${process.argv[2]}`); }
+const wav = args.find((a, i) => a.endsWith('.wav') && args[i - 1] !== '--scribe');
+if (wav) { writeWav(wav, scene.audio, scene.rate); console.log(`wrote ${wav}`); }
+console.log(`scene: ${mac ? 'MacBook mic' : 'close mic'}; Scribe extras: ${JSON.stringify(Object.fromEntries(extra))}`);
 
 async function transcribe(audio16k) {
   const pcm = Buffer.alloc(audio16k.length * 2);
@@ -24,15 +33,17 @@ async function transcribe(audio16k) {
   const tok = await (await fetch('https://api.elevenlabs.io/v1/single-use-token/realtime_scribe', {
     method: 'POST', headers: { 'xi-api-key': CONFIG.ELEVENLABS_API_KEY } })).json();
   const q = new URLSearchParams({ model_id: CONFIG.STT_MODEL_ID || 'scribe_v2_realtime', token: tok.token, audio_format: 'pcm_16000',
-    commit_strategy: 'vad', include_timestamps: 'true', vad_silence_threshold_secs: String(CONFIG.VAD_SILENCE_SECS || 0.6) });
+    commit_strategy: 'vad', include_timestamps: 'true', vad_silence_threshold_secs: String(CONFIG.VAD_SILENCE_SECS || 0.6), ...Object.fromEntries(extra) });
   return new Promise((resolve) => {
     const ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + q);
     const words = [];
     ws.onmessage = (e) => {
       const d = JSON.parse(e.data);
+      if (d.message_type === 'session_started') console.log(`   Scribe config: ${JSON.stringify(d.config ?? d)}`);
+      else if (d.error || /error/.test(d.message_type)) console.log(`   Scribe ${d.message_type}: ${d.error || d.message || ''}`);
       if (d.message_type === 'committed_transcript_with_timestamps') words.push(...(d.words || []).filter((w) => w.type === 'word'));
     };
-    ws.onclose = () => resolve(words);
+    ws.onclose = (e) => { if (e.code !== 1000 && e.code !== 1005) console.log(`   Scribe closed ${e.code} ${e.reason}`); resolve(words); };
     ws.onopen = async () => {
       const CH = 3200; // 100 ms
       for (let i = 0; i < pcm.length; i += CH) {
@@ -72,7 +83,7 @@ function score(words, shift, focus) {
 const runs = [
   ['No filtering (gate off, filter off)', scene, 0, false],
   ['Loudtype (gate + main-speaker filter)', gated, gated.delaySec, true],
-];
+].slice(onlyGated ? 1 : 0);
 const counts = {};
 for (const [name, src, shift, focus] of runs) {
   const audio16k = src === scene ? gated.plain : gated.audio;

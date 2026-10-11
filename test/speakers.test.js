@@ -1,10 +1,14 @@
+// Speakers: "main speaker only" (calibrated Prosody) and "label everyone"
+// (no calibration; each line's speaker comes from voiceprint-core.js, set on
+// `voice` while the line is styled). Synthetic frames, no model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Speakers } from '../control/speakers.js';
 import { Transcript } from '../control/transcript.js';
+import { CALIBRATE_WORDS } from '../control/prosody.js';
 
-function scene(count = 2) {
-  const p = new Speakers(count);
+function scene(opts) {
+  const p = new Speakers(opts);
   let t = 0;
   const frames = (db, pitch, n = 12, voicing = 0.8) => {
     for (let i = 0; i < n; i++) p.push(t += 0.033, db, voicing, pitch);
@@ -16,193 +20,126 @@ function scene(count = 2) {
     frames(db, pitch, 12, voicing);
     return { text: 'hello', start, end: t, type: 'word' };
   };
-  const say = (db, pitch, voicing) => {
+  /** A word by speaker `who` (0-based, as the voiceprint would say), or with no voiceprint. */
+  const say = (db, pitch, { who, voicing } = {}) => {
     const w = span(db, pitch, voicing);
-    return p.styleWord(w.text, w.start, w.end);
+    p.voice = who == null ? null : { verdict: 'match', best: who, score: 0.8, scores: [], seconds: 2 };
+    const style = p.styleWord(w.text, w.start, w.end);
+    p.voice = null;
+    return style;
   };
-  const enroll = (db, pitch) => { for (let i = 0; i < 6; i++) say(db, pitch); };
-  const ready = () => { enroll(-25, 110); p.advance(); enroll(-35, 240); p.advance(); };
-  return { p, say, span, enroll, ready };
+  return { p, say, span, frames };
 }
 
-test('enrolls each speaker separately and requires an explicit handoff', () => {
-  const { p, enroll } = scene();
-  assert.equal(p.advance(), false);
-  enroll(-25, 110);
-  assert.equal(p.enrollmentReady, true);
-  assert.equal(p.enrollmentIndex, 0);
-  assert.equal(p.profiles[1].calibration, 0);
-  assert.equal(p.advance(), true);
-  assert.equal(p.suppressCaptions, true);
-  enroll(-35, 240);
-  assert.equal(p.advance(), true);
-  assert.equal(p.suppressCaptions, false);
+test('label everyone is the default: no calibration, nobody filtered, speech-to-text hears everything', () => {
+  const { p } = scene();
+  assert.equal(p.auto, true);
+  assert.equal(p.multi, true);
+  assert.equal(p.focus, false);
   assert.equal(p.calibration, 1);
-  assert.deepEqual(p.profiles.map((x) => [x.ref, x.pitch]), [[-25, 110], [-35, 240]]);
-});
-
-test('uses each speaker’s own loudness and keeps the quieter enrolled person', () => {
-  const { p, say, ready } = scene();
-  ready();
-  assert.equal(say(-25, 110).speaker, 1);
-  const quiet = say(-35, 240);
-  assert.equal(quiet.speaker, 2);
-  assert.equal(quiet.level, 'normal');
-  assert.equal(say(-26, 240).level, 'shout');
-  assert.equal(p.gateDb(), -53);
-});
-
-test('rejects unmatched voiced speech even at high volume, without teaching profiles', () => {
-  const { p, say, ready } = scene();
-  ready();
-  const refs = p.profiles.map((x) => x.ref);
-  assert.match(say(-20, 165).background, /no enrolled/);
-  assert.deepEqual(p.profiles.map((x) => x.ref), refs);
-  p.focus = false;
-  assert.equal(say(-20, 165).background, undefined);
   assert.equal(p.gateDb(), -Infinity);
+  assert.equal(p.gateUnvoicedDb(), -Infinity);
 });
 
-test('late word timings cannot enroll the next person or enter the conversation', () => {
-  const { p, span, enroll } = scene();
-  const old = span(-25, 110);
-  enroll(-25, 110);
-  p.advance();
-  assert.ok(p.styleWord('late', old.start, old.end).background);
-  assert.equal(p.profiles[1].calibration, 0);
-  enroll(-35, 240);
-  p.advance();
-  assert.ok(p.styleWord('late', old.start, old.end).background);
+test('each line gets the speaker the voiceprint names; speakers appear as they are heard', () => {
+  const { p, say } = scene();
+  assert.equal(say(-25, 110, { who: 0 }).speaker, 1);
+  assert.equal(say(-35, 240, { who: 1 }).speaker, 2);
+  assert.equal(p.profiles.length, 2);
+  assert.equal(say(-25, 110, { who: 0 }).speaker, 1);
 });
 
-test('whispers retain continuity; silence cannot match a speaker', () => {
-  const { say, ready } = scene();
-  ready();
-  say(-35, 240);
-  assert.equal(say(-44, 0, 0.1).speaker, 2);
-  assert.ok(say(-60, 0, 0).background);
+test('without a voiceprint (short line, model loading) a word stays with the last speaker', () => {
+  const { say } = scene();
+  say(-35, 240, { who: 1 });
+  assert.equal(say(-45, 0, { voicing: 0.1 }).speaker, 2);
+  assert.equal(say(-35, 240).speaker, 2);
 });
 
-test('recalibration clears every profile and requires all participants again', () => {
-  const { p, ready } = scene(3);
-  ready(); // third person still needs enrollment
-  assert.equal(p.enrolling, true);
+test('each speaker gets their own normal loudness, learned from their first words', () => {
+  const { p, say } = scene();
+  for (let i = 0; i < CALIBRATE_WORDS; i++) assert.equal(say(-25, 110, { who: 0 }).level, 'normal'); // learning
+  for (let i = 0; i < CALIBRATE_WORDS; i++) say(-40, 240, { who: 1 });                               // a quieter person
+  assert.ok(Math.abs(p.profiles[0].ref + 25) < 1 && Math.abs(p.profiles[1].ref + 40) < 1);
+  assert.equal(say(-40, 240, { who: 1 }).level, 'normal');  // their normal, not "whisper"
+  assert.equal(say(-30, 240, { who: 1 }).level, 'shout');   // +10 dB for them
+  assert.equal(say(-25, 110, { who: 0 }).level, 'normal');  // speaker 1's normal
+});
+
+test('the size sensitivity reaches every speaker', () => {
+  const { p, say } = scene();
+  for (let i = 0; i < CALIBRATE_WORDS; i++) say(-30, 110, { who: 0 });
+  assert.equal(say(-24.5, 110, { who: 0 }).level, 'normal'); // +5.5 dB
+  p.sensitivity = 1.5;
+  assert.equal(say(-24.5, 110, { who: 0 }).level, 'loud');
+});
+
+test('New judge forgets every speaker', () => {
+  const { p, say } = scene();
+  say(-25, 110, { who: 0 });
+  say(-35, 240, { who: 1 });
   p.recalibrate();
-  assert.equal(p.enrollmentIndex, 0);
-  assert.equal(p.suppressCaptions, true);
-  assert.ok(p.profiles.every((x) => x.ref == null && x.pitch == null));
+  assert.equal(p.profiles.length, 0);
+  assert.equal(p.focus, false);
+  assert.equal(say(-35, 240, { who: 0 }).speaker, 1);
 });
 
-test('a single speaker retains the original automatic calibration', () => {
-  const { p, enroll, say } = scene(1);
-  assert.equal(p.suppressCaptions, false);
-  enroll(-25, 110);
-  assert.equal(p.calibration, 1);
-  assert.equal(say(-15, 110).level, 'shout');
+test('main speaker only keeps the calibrated, filtered behavior', () => {
+  const { p, say } = scene({ auto: false });
+  assert.equal(p.multi, false);
+  assert.equal(p.focus, true);
+  assert.ok(p.calibration < 1);
+  for (let i = 0; i < CALIBRATE_WORDS; i++) say(-25, 180);
+  assert.ok(p.calibrated);
+  assert.equal(say(-25, 180).speaker, undefined);
+  assert.match(say(-42, 110).background, /someone else/);
 });
 
-test('multi-speaker transcript excludes calibration and filters individual conversation words', async () => {
+test('transcript lines carry their speaker; live words show the guess or the last speaker', async () => {
   const { p, span } = scene();
-  const sent = [], tr = new Transcript({ prosody: p, send: (m) => sent.push(m), classify: () => null, mood: () => null });
+  const sent = [];
+  const who = [0, 1];
+  const tr = new Transcript({
+    prosody: p,
+    send: (m) => sent.push(m),
+    classify: () => null,
+    mood: () => null,
+    identify: (start, end, live) => Promise.resolve(live ? null : { verdict: 'match', best: who.shift(), score: 0.8, scores: [], seconds: 2 }),
+  });
   tr.t0 = 0;
-  for (const [db, pitch] of [[-25, 110], [-35, 240]]) {
-    const words = Array.from({ length: 6 }, () => span(db, pitch));
-    tr.partial('hello hello hello hello hello hello');
-    await tr.committedTimed({ text: 'hello hello hello hello hello hello', words });
-    assert.equal(sent.length, 0);
-    assert.equal(tr.lines.length, 0);
-    assert.equal(p.advance(), true);
-    tr.resetCaption();
-  }
-  const words = [span(-25, 110), span(-20, 165), span(-20, 165), span(-35, 240)];
-  tr.partial('hello hello hello hello');
-  assert.equal(sent.length, 0); // focused partials cannot bypass the filter
-  await tr.committedTimed({ text: 'hello hello hello hello', words });
-  assert.deepEqual(tr.lines[0].words.map((w) => w.speaker), [1, 2]);
-  assert.equal(tr.lines[0].text, 'hello hello');
-  await tr.finalize('untimed stranger', null);
-  assert.equal(sent.at(-1).words.length, 0);
-  assert.equal(tr.lines.length, 1);
+  const a = span(-25, 110), b = span(-35, 240);
+  await tr.committedTimed({ text: 'hello', words: [a] });
+  assert.equal(sent.at(-1).speaker, 1);
+  await tr.committedTimed({ text: 'hello', words: [b] });
+  assert.equal(sent.at(-1).speaker, 2);
+  assert.deepEqual(tr.lines.map((l) => l.speaker), [1, 2]);
+  tr.partial('and then');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(sent.at(-1).speaker, 2); // no live guess yet: the last speaker
 });
 
-test('invalid speaker counts are rejected', () => {
-  for (const count of [0, -1, 1.5, NaN, 33]) assert.throws(() => new Speakers(count));
+test('splitTurns: a committed line splits at pauses into stretches long enough to identify', async () => {
+  const { splitTurns } = await import('../control/transcript.js');
+  const w = (start, end) => ({ text: 'x', start, end, type: 'word' });
+  // A: 0-1.3 s, pause 0.4 s, B: 1.7-3.0 s, then a short "yeah" after a pause (joins B)
+  const turns = splitTurns([w(0, 0.4), w(0.45, 0.9), w(0.95, 1.3), w(1.7, 2.2), w(2.25, 3.0), w(3.4, 3.6)]);
+  assert.deepEqual(turns.map((t) => t.length), [3, 3]);
+  assert.equal(splitTurns([w(0, 0.3), w(0.6, 0.9)]).length, 1); // too short to be two people
 });
 
-test('enrollment waits for pitch and ignores early whispers', () => {
-  const { p, enroll, say } = scene();
-  say(-35, 0, 0.1);
-  assert.equal(p.profiles[0].calibration, 0);
-  enroll(-25, 0);
-  assert.equal(p.enrollmentReady, false);
-  assert.equal(p.advance(), false);
-  for (let i = 0; i < 3; i++) say(-25, 110);
-  assert.equal(p.enrollmentReady, true);
-});
-
-test('a reconnect during enrollment preserves profiles and resumes the current speaker', async () => {
-  const { p, enroll, span } = scene();
-  enroll(-25, 110);
-  p.advance();
-  const tr = new Transcript({ prosody: p, send: () => assert.fail('enrollment was captioned'), classify: () => null, mood: () => null });
+test('label everyone: two people in one committed line get their own speakers', async () => {
+  const { p, span, frames } = scene();
+  const sent = [];
+  const asked = [];
+  const tr = new Transcript({
+    prosody: p, send: (m) => sent.push(m), classify: () => null, mood: () => null,
+    identify: (start, end, live) => { if (!live) asked.push([start, end]); return Promise.resolve(live ? null : { verdict: 'match', best: asked.length - 1, score: 0.8, scores: [], seconds: 2 }); },
+  });
   tr.t0 = 0;
-  await tr.committedTimed({ text: 'hello', words: [span(-35, 240)] });
-  tr.resync();
-  const words = Array.from({ length: 5 }, () => span(-35, 240));
-  const origin = words[0].start - 0.1;
-  tr.t0 = origin;
-  await tr.committedTimed({ text: 'hello hello hello hello hello', words: words.map((w) => ({ ...w, start: w.start - origin, end: w.end - origin })) });
-  assert.equal(p.enrollmentReady, true);
-  assert.equal(p.profiles[0].pitch, 110);
-  assert.equal(p.profiles[1].pitch, 240);
-});
-
-// ---------- review fixes ----------
-test('a speaker shouting with a raised pitch is still that speaker (shouting raises pitch)', () => {
-  const { say, ready } = scene();
-  ready();
-  // speaker 1 (110 Hz, -25 dB) shouts: +12 dB, pitch up 9 semitones
-  const shout = say(-13, 110 * 2 ** (9 / 12));
-  assert.equal(shout.background, undefined);
-  assert.equal(shout.speaker, 1);
-  assert.equal(shout.level, 'shout');
-  // ...but a quieter voice at that pitch is still nobody enrolled
-  assert.ok(say(-24, 110 * 2 ** (9 / 12)).background);
-});
-
-test('with the filter off, words timed onto a pause are kept, not dropped', () => {
-  const { p, say, ready } = scene();
-  ready();
-  p.focus = false;
-  const w = say(-60, 0, 0);
-  assert.equal(w.background, undefined);
-});
-
-test('with the filter off, untimed lines are captioned plainly', async () => {
-  const { p, ready } = scene();
-  ready();
-  p.focus = false;
-  const sent = [], tr = new Transcript({ prosody: p, send: (m) => sent.push(m), classify: () => null, mood: () => null });
-  await tr.finalize('no timestamps here', null);
-  assert.deepEqual(sent.at(-1).words.map((w) => w.word), ['no', 'timestamps', 'here']);
-});
-
-test('chatter transcribed before the first person speaks cannot become their profile', () => {
-  const { p, say } = scene();
-  for (let i = 0; i < 4; i++) say(-43, 150); // "How was your drive today?" from the next table
-  for (let i = 0; i < 6; i++) say(-20, 112); // speaker 1 next to the mic
-  assert.equal(p.enrollmentReady, true);
-  assert.ok(Math.abs(p.profiles[0].ref - -20) < 0.01);
-  assert.equal(p.profiles[0].pitch, 112);
-});
-
-test('if chatter made a speaker look ready, their own (louder) words take over before the handoff', () => {
-  const { p, say } = scene();
-  for (let i = 0; i < 6; i++) say(-43, 150);
-  assert.equal(p.enrollmentReady, true); // looks ready on chatter alone...
-  say(-20, 112);
-  assert.equal(p.enrollmentReady, false); // ...until the real speaker talks
-  for (let i = 0; i < 5; i++) say(-20, 112);
-  assert.equal(p.enrollmentReady, true);
-  assert.ok(Math.abs(p.profiles[0].ref - -20) < 0.01);
+  const a = [span(-25, 110), span(-25, 110), span(-25, 110)];
+  frames(-60, 0, 15, 0); // the handover pause is longer than the pauses inside each turn
+  const b = [span(-35, 240), span(-35, 240), span(-35, 240)];
+  await tr.committedTimed({ text: 'a a a b b b', words: [...a, ...b] });
+  assert.equal(asked.length, 2);
+  assert.deepEqual(sent.at(-1).words.map((x) => x.speaker), [1, 1, 1, 2, 2, 2]);
 });

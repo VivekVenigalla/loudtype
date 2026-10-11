@@ -6,11 +6,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { hasSay, voicesScene, measure, gateScene, passed } from '../scripts/scenes.mjs';
 import { Prosody } from '../control/prosody.js';
-import { frameFeatures } from '../control/features.js';
+import { frameFeatures, VOICED_FRAME } from '../control/features.js';
 import { Gate } from '../control/gate.js';
 
 const skip = !hasSay() && 'macOS say not available';
-const deps = { Prosody, frameFeatures, Gate };
+const deps = { Prosody, frameFeatures, Gate, VOICED_FRAME };
 const scene = skip ? null : await voicesScene();
 const run = skip ? null : measure(scene, deps);
 const each = (who) => scene.spans.filter((s) => s.who === who);

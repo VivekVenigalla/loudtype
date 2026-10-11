@@ -1,126 +1,102 @@
-// Session-only acoustic profiles. Pitch and level are heuristics, not voiceprints:
-// similar voices, unvoiced words and overlapping speech cannot be identified reliably.
-import { Prosody, THRESHOLDS } from './prosody.js';
+// Who is talking. Two modes, chosen before Start:
+//
+//   Main speaker only (auto = false): plain Prosody. The first sentence
+//     calibrates the main speaker; everyone else is filtered out.
+//   Label everyone (auto = true, the default): no calibration. Every line is
+//     captioned and labeled Speaker 1, 2, ... by voiceprint
+//     (voiceprint-core.js diarize(), which sets `voice` while a line is
+//     styled). Each speaker gets their own Prosody profile, so loudness is
+//     measured against *their* normal, learned from their first few words.
+//
+// Profiles live in memory for this session only.
+import { Prosody } from './prosody.js';
 import { LEVELS } from './caption.js';
-
-// Shouting raises pitch: past the loud threshold, expect ~0.5 semitone more per dB (up to 8).
-const RISE_PER_DB = 0.5;
-const RISE_MAX_ST = 8;
-const expectedRise = (d) => Math.min(RISE_MAX_ST, Math.max(0, d - THRESHOLDS.loud) * RISE_PER_DB);
 
 const plain = () => ({ level: /** @type {const} */ ('normal'), ...LEVELS.normal, wdth: 100 });
 
 export class Speakers extends Prosody {
-  constructor(count = 1) {
+  constructor({ auto = true } = {}) {
     super();
-    if (!Number.isSafeInteger(count) || count < 1 || count > 32) throw new Error('Choose a whole number of speakers from 1 to 32.');
-    this.profiles = Array.from({ length: count }, () => new Prosody());
-    this.enrolling = count > 1;
-    this.enrollmentIndex = 0;
+    this.auto = auto;
+    /** @type {Prosody[]} one per speaker heard (label-everyone mode) */
+    this.profiles = [];
     this.activeIndex = 0;
-    this.boundary = -Infinity;
-    this.requireTimed = count > 1;
-    this.filterWordsIndividually = count > 1;
-    this.suppressCaptions = this.enrolling;
+    this.enrolling = false;
+    if (auto) this.focus = false; // nobody is filtered out
   }
 
-  get multi() { return this.profiles.length > 1; }
-  get enrollmentReady() {
-    const p = this.profiles[this.enrollmentIndex];
-    return p.calibrated && p.pitch != null;
-  }
-  get calibration() {
-    if (!this.multi) return super.calibration;
-    if (!this.enrolling) return 1;
-    const p = this.profiles[this.enrollmentIndex];
-    // A profile without pitch isn't ready, even if its loudness is learned.
-    return (this.enrollmentIndex + Math.min(p.calibration, p.pitch ? 1 : 0.95)) / this.profiles.length;
-  }
+  /** Label-everyone mode: several profiles, captions carry a speaker. */
+  get multi() { return this.auto; }
 
-  advance() {
-    if (!this.enrolling || !this.enrollmentReady) return false;
-    this.boundary = this.frames.at(-1)?.t ?? 0;
-    if (this.enrollmentIndex + 1 < this.profiles.length) this.enrollmentIndex++;
-    else { this.enrolling = false; this.suppressCaptions = false; }
-    return true;
+  /** No calibration step in label-everyone mode. */
+  get calibration() { return this.auto ? 1 : super.calibration; }
+
+  /** Speaker `from` turned out to be speaker `to` (their voiceprints converged). */
+  mergeProfile(from, to) {
+    if (this.activeIndex === from) this.activeIndex = to;
   }
 
   recalibrate() {
     super.recalibrate();
-    for (const p of this.profiles) p.recalibrate();
-    this.enrollmentIndex = this.activeIndex = 0;
-    this.enrolling = this.multi;
-    this.suppressCaptions = this.enrolling;
-    this.boundary = this.frames.at(-1)?.t ?? 0;
+    if (this.auto) this.focus = false;
+    this.profiles = [];
+    this.activeIndex = 0;
   }
 
-  /** Closest plausible calibrated profile. Unknown voiced speech is rejected. */
-  match(st) {
-    if (!st) return null;
-    // Timed onto a pause: no voice to identify. Filtering: drop it; filter off: keep it.
-    if (!st.speech && st.db < this.noiseDb + 3) return this.focus ? null : this.activeIndex;
-    // No pitch in whispers/consonants: retain continuity, without claiming identity.
-    if (st.voiced < 0.5 || !st.pitch) return this.activeIndex;
-    let best = null, distance = Infinity;
-    this.profiles.forEach((p, i) => {
-      if (!p.calibrated || !p.pitch) return;
-      const d = st.db - p.ref;
-      const semis = 12 * Math.log2(st.pitch / p.pitch) - expectedRise(d); // vs. their pitch at this loudness
-      if (this.focus && (d < -12 || semis < -5 || semis > 7)) return;
-      const score = Math.abs(semis) + Math.abs(d) / 12;
-      if (score < distance) { best = i; distance = score; }
-    });
-    return best;
+  /** Label everyone: speech-to-text hears everything. */
+  gateDb() { return this.auto ? -Infinity : super.gateDb(); }
+
+  /** The profile for a speaker index, created if this is the first we hear of them. */
+  profile(i) {
+    while (this.profiles.length <= i) {
+      const created = new Prosody();
+      created.focus = false;
+      this.profiles.push(created);
+    }
+    const p = this.profiles[i];
+    p.frames = this.frames;
+    p.noiseDb = this.noiseDb;
+    p.sensitivity = this.sensitivity;
+    return p;
   }
 
-  gateDb() {
-    if (!this.multi) return super.gateDb();
-    if (!this.focus) return -Infinity;
-    if (this.enrolling) return this.noiseDb + 10;
-    // The quieter enrolled speaker must still reach Scribe.
-    return Math.max(this.noiseDb + 6, Math.min(...this.profiles.map((p) => p.ref)) - 18);
+  /** Each speaker teaches their own moods. */
+  toneBookFor(speaker) { return this.auto ? this.profile(Math.max(0, (speaker ?? this.activeIndex + 1) - 1)).tones : this.tones; }
+
+  /** Tone against the line's speaker's own normal (their profile). */
+  toneOf(start, end, words, speaker) {
+    if (!this.auto) return super.toneOf(start, end, words, speaker);
+    const p = speaker ? this.profiles[speaker - 1] : null;
+    return p?.calibrated ? p.toneOf(start, end, words) : null;
   }
 
   styleLive(start, end, n) {
-    if (!this.multi) return super.styleLive(start, end, n);
-    // In focused multi-speaker mode wait for real word times rather than leak
-    // unidentified partials onto the overlay from an approximate audio window.
+    if (!this.auto) return super.styleLive(start, end, n);
+    const p = this.profile(this.activeIndex);
     return Array.from({ length: n }, (_, i) => {
-      const st = this.stats(start + (end - start) * i / n, start + (end - start) * (i + 1) / n);
-      const index = this.match(st);
-      const level = index == null ? 'normal' : this.profiles[index].levelFor(st);
+      const st = this.stats(start + ((end - start) * i) / n, start + ((end - start) * (i + 1)) / n);
+      const level = st?.speech && p.calibrated ? p.levelFor(st) : 'normal';
       return { level, ...LEVELS[level], wdth: 100 };
     });
   }
 
   styleWord(text, start, end) {
-    if (!this.multi) return super.styleWord(text, start, end);
-    if (start <= this.boundary) return { ...plain(), background: 'before the current calibration step' };
+    if (!this.auto) return super.styleWord(text, start, end);
+    // The line's speaker (voiceprint); without one (model still loading, no timestamps) the last speaker.
+    const index = this.voice?.best ?? this.activeIndex;
+    const p = this.profile(index);
+    this.activeIndex = index;
+    const speaker = index + 1;
     const st = this.stats(start, end);
-    const index = this.enrolling ? this.enrollmentIndex : this.match(st);
-    if (index == null) {
-      this.remember({ word: text, ...st, level: 'normal', delta: null, background: 'no enrolled acoustic profile matched' });
-      return { ...plain(), background: 'no enrolled acoustic profile matched' };
-    }
-    const p = this.profiles[index];
-    p.frames = this.frames;
-    p.noiseDb = this.noiseDb;
-    p.focus = false; // matching above already checked every enrolled profile
-    if (this.enrolling) {
-      // Keep learning until the handoff click: the loudest voice wins (learn()),
-      // so chatter transcribed before the person spoke can't become their profile.
-      if (st && !(!st.speech && st.db < this.noiseDb + 3)) p.learn(st);
+    if (!p.calibrated) {
+      // Their first voiced words teach their normal loudness; until then they are shown at normal size.
+      if (st && !(!st.speech && st.db < this.noiseDb + 3)) p.learn(st, start, end);
       p.widthFor(text, start, end); // their speaking pace, for held words later
-      this.ref = p.ref;
-      this.pitch = p.pitch;
-      this.remember({ word: text, ...st, level: 'normal', delta: null, speaker: index + 1 });
-      return { ...plain(), speaker: index + 1 };
+      this.remember({ word: text, ...st, level: 'normal', delta: null, speaker });
+      return { ...plain(), speaker };
     }
     const style = p.styleWord(text, start, end);
-    this.activeIndex = index;
-    this.ref = p.ref;
-    this.pitch = p.pitch;
-    if (st && p.last) this.remember({ ...p.last, speaker: index + 1 }); // no frames → nothing new measured
-    return { ...style, speaker: index + 1 };
+    if (st && p.last) this.remember({ ...p.last, speaker });
+    return { ...style, speaker };
   }
 }

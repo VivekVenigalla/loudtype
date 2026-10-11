@@ -28,12 +28,19 @@ export class Recording {
 export class Relay {
   constructor() {
     this.ws = null;
+    /** @type {(() => void) | null} */
+    this.onOpen = null;
+    /** @type {((msg: any) => void) | null} */
+    this.onMessage = null;
     this.rec = new Recording();
     this.connect();
   }
 
   connect() {
     this.ws = new WebSocket(`ws://${location.host}/relay`);
+    this.ws.onopen = () => this.onOpen?.();
+    // Overlays say hello when they (re)load, so the panel can send them the current look.
+    this.ws.onmessage = (e) => { try { this.onMessage?.(JSON.parse(e.data)); } catch {} };
     this.ws.onclose = () => setTimeout(() => this.connect(), 1000);
   }
 

@@ -59,3 +59,46 @@ test('energy is clamped to 0..1', () => {
     assert.ok(energy >= 0 && energy <= 1);
   }
 });
+
+test('creator hype: surprise said with an energetic voice is happy; flat it is surprised; negative is not hype', () => {
+  const wow = { surprise: 0.75, excitement: 0.12, neutral: 0.1 };
+  assert.equal(decide(wow, 'oh my gosh look at this', 0.8, 0.7).emotion, 'happy');
+  assert.equal(decide(wow, 'oh my gosh look at this', 0.3, 0.7).emotion, 'surprised');             // said flatly
+  assert.notEqual(decide({ ...wow, disgust: 0.5 }, 'oh my gosh look at this', 0.8, 0.7).emotion, 'happy'); // something negative in it: not hype
+  assert.equal(decide({ neutral: 0.95 }, 'this is the one dollar room', 0.9, 0.7).emotion, 'neutral'); // no surprise in it
+});
+
+test('pure surprise is surprised; hype needs some excitement or amusement', () => {
+  assert.equal(decide({ surprise: 0.85, excitement: 0.07, neutral: 0.05 }, "wow I can't believe it", 0.5, 0.7).emotion, 'surprised');
+  assert.equal(decide({ surprise: 0.77, excitement: 0.12, neutral: 0.08 }, 'oh my gosh look at this', 0.5, 0.7).emotion, 'happy');
+});
+
+test('a negative line that is mostly fear is scared, mostly disgust is disgusted', () => {
+  assert.equal(decide({ fear: 0.91, nervousness: 0.07, neutral: 0.03 }, "I'm so scared of this boss", 0.5, 0.7).emotion, 'scared');
+  assert.equal(decide({ disgust: 0.85, annoyance: 0.05 }, 'ew that is disgusting', 0.5, 0.7).emotion, 'disgusted');
+  assert.equal(decide({ anger: 0.8, disgust: 0.1 }, 'I hate this stupid level', 0.8, 0.7).emotion, 'angry');
+  assert.equal(decide({ sadness: 0.8, fear: 0.1 }, 'I really miss my old dog', 0.3, 0.7).emotion, 'sad');
+});
+
+test('emotion2vec: voice labels map to emotions; neutral and unsure stay neutral', async () => {
+  const { fromVoice } = await import('../control/emotion-core.js');
+  assert.equal(fromVoice({ angry: 0.9, neutral: 0.1 }).emotion, 'angry');
+  assert.equal(fromVoice({ disgusted: 0.6, neutral: 0.4 }).emotion, 'disgusted');
+  assert.equal(fromVoice({ fearful: 0.6, sad: 0.2, neutral: 0.2 }).emotion, 'scared');
+  assert.equal(fromVoice({ surprised: 0.9 }).emotion, 'surprised');
+  assert.equal(fromVoice({ sad: 0.5, fearful: 0.3, neutral: 0.2 }).emotion, 'sad');
+  assert.equal(fromVoice({ happy: 0.95 }, 0.7).emotion, 'happy');
+  assert.equal(fromVoice({ happy: 0.95 }, 0.3).emotion, 'calm');
+  assert.equal(fromVoice({ neutral: 0.8, happy: 0.2 }).emotion, 'neutral');
+  assert.equal(fromVoice({ '<unk>': 0.9, sad: 0.1 }).emotion, 'neutral');
+});
+
+test('emotion2vec only colors lines whose words are neutral, and only when very sure', async () => {
+  const { fuse } = await import('../control/emotion-core.js');
+  const neutral = { emotion: 'neutral', confidence: 0.2, energy: 0.6 };
+  const angry = { emotion: 'angry', confidence: 0.9, energy: 0.7 };
+  assert.equal(fuse(neutral, null).emotion, 'neutral');
+  assert.equal(fuse(neutral, { angry: 0.97, neutral: 0.03 }).emotion, 'angry');
+  assert.equal(fuse(neutral, { angry: 0.7, neutral: 0.3 }).emotion, 'neutral');
+  assert.equal(fuse(angry, { happy: 0.99 }).emotion, 'angry'); // the words win
+});

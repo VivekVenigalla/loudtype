@@ -127,11 +127,40 @@ export function hasSay() {
   try { execFileSync('say', ['-v', '?'], { stdio: 'ignore' }); return true; } catch { return false; }
 }
 
+/** The same room heard by a MacBook's built-in (omni) mic: the main speaker only
+ * 12 dB over the room noise, people 2-3 m away only 8-10 dB under them, echoey. */
+export const MAC_LEVEL = {
+  main: -32,
+  whisper: -32 - 11,
+  shout: -32 + 9,
+  near: -32 - 5,
+  far: -32 - 9,
+  babble: -32 - 16,
+  room: -32 - 12,
+};
+
+/** Room echo: the direct sound plus an exponentially decaying noise tail (RT60 ~0.5 s). */
+export function reverb(x, { wet = 0.6, decaySec = 0.08, rate = RATE, seed = 5 } = {}) {
+  const rand = rng(seed);
+  const L = Math.round(rate * 0.4), step = 8; // a sparse tail keeps this fast
+  const taps = [];
+  for (let j = step; j < L; j += step) taps.push([j, (rand() * 2 - 1) * Math.exp(-j / (rate * decaySec)) * wet * Math.sqrt(step)]);
+  const y = new Float32Array(x.length + L);
+  y.set(x);
+  for (let i = 0; i < x.length; i++) {
+    const v = x[i];
+    if (!v) continue;
+    for (const [j, g] of taps) y[i + j] += v * g;
+  }
+  return y;
+}
+
 /**
  * Real voices: Samantha is the main speaker, Daniel talks nearby (lower
  * pitch), four other voices are the ballroom chatter.
+ * `mac: true` places them as a MacBook mic hears them (MAC_LEVEL, echo on everyone but the main speaker).
  */
-export async function voicesScene() {
+export async function voicesScene({ mac = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'lt-scene-'));
   let files = 0;
   const say = async (voice, text) => {
@@ -170,14 +199,18 @@ export async function voicesScene() {
     for (const [i, [who, kind, , text]] of lines.entries()) {
       const x = said[i];
       spans.push({ who, kind, start: t, end: t + x.length / RATE, text });
-      clips.push([x, LEVEL[kind.replace('-same', '')] ?? MAIN_DB, t]);
+      const level = mac ? (MAC_LEVEL[kind.replace('-same', '')] ?? MAC_LEVEL.main) : (LEVEL[kind.replace('-same', '')] ?? MAIN_DB);
+      clips.push([mac && who !== 'main' ? reverb(x) : x, level, t]);
       t += x.length / RATE + 1.0;
     }
     const sec = t + 0.5;
     const audio = new Float32Array(Math.round(sec * RATE));
     for (const [x, db, at] of clips) mix(audio, setLevel(x, db), at);
-    for (const x of rambles) mix(audio, setLevel(x.subarray(0, Math.min(x.length, audio.length)), LEVEL.babble), rand() * 0.8);
-    const room = 10 ** (LEVEL.room / 20) * Math.sqrt(3);
+    for (const x of rambles) {
+      const part = x.subarray(0, Math.min(x.length, audio.length));
+      mix(audio, setLevel(mac ? reverb(part) : part, mac ? MAC_LEVEL.babble : LEVEL.babble), rand() * 0.8);
+    }
+    const room = 10 ** ((mac ? MAC_LEVEL.room : LEVEL.room) / 20) * Math.sqrt(3);
     for (let i = 0; i < audio.length; i++) audio[i] += (rand() * 2 - 1) * room;
     return { rate: RATE, audio, spans };
   } finally {
@@ -222,7 +255,7 @@ export function measure(scene, { Prosody, frameFeatures }, { focus = true } = {}
  * through the gate, with the threshold updated from prosody every 100 ms.
  * Returns the gated 16 kHz audio and its delay.
  */
-export function gateScene(scene, { Prosody, frameFeatures, Gate }, { focus = true } = {}) {
+export function gateScene(scene, { Prosody, frameFeatures, Gate, VOICED_FRAME = 0.45 }, { focus = true } = {}) {
   const p = new Prosody();
   p.focus = focus;
   const gate = new Gate({ rate: 16000 });
@@ -237,13 +270,14 @@ export function gateScene(scene, { Prosody, frameFeatures, Gate }, { focus = tru
     const f = frameFeatures(scene.audio.subarray(i, i + N), scene.rate);
     p.push(t, f.db, f.voicing, f.pitch);
     while (next < order.length && order[next].end + 0.1 <= t) { const s = order[next++]; p.styleWord(s.text, s.start, s.end); }
-    if (Math.floor(t * 10) !== Math.floor((t - 0.033) * 10)) gate.setThreshold(p.gateDb()); // the app updates it ~every frame
+    if (Math.floor(t * 10) !== Math.floor((t - 0.033) * 10)) gate.setThreshold(p.gateDb(), p.gateUnvoicedDb()); // the app updates it ~every frame
     for (; j < out.length && (j + 1) * ratio <= i + N; j++) {
       let s = 0;
       for (let k = 0; k < ratio; k++) s += scene.audio[j * ratio + k];
       plain[j] = s / ratio;
       out[j] = gate.push(plain[j]);
     }
+    if (f.voicing < VOICED_FRAME) gate.unvoiced(f.db); // as the worklet does once a frame is measured
   }
   return { audio: out, plain, delaySec: gate.delaySec, prosody: p };
 }
