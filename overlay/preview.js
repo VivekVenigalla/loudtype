@@ -55,7 +55,7 @@ function play(emotion) {
     if (!reduce) playFx(el, emotion, { index: isIcon ? 0 : i - (ICONS[emotion] ? 1 : 0), icon: isIcon, delay });
   });
 }
-const playAll = () => EMOTIONS.forEach(play);
+const playAll = () => EMOTIONS.forEach((e) => { play(e); repeat(e); });
 
 // "Send to overlay": the same events the control panel sends (live guess, then final).
 let ws = null, lineId = 900000;
@@ -100,7 +100,7 @@ function card(emotion) {
   el.querySelector('.name').textContent = emotion;
   el.querySelector('.icon-label').textContent = ICONS[emotion] ? `icon ${ICONS[emotion]}` : 'no icon';
   el.querySelector('.about').textContent = FX[emotion].about;
-  el.querySelector('[data-act=play]').onclick = () => play(emotion);
+  el.querySelector('[data-act=play]').onclick = () => { play(emotion); repeat(emotion); };
   el.querySelector('[data-act=send]').onclick = () => sendToOverlay(emotion);
   const notes = el.querySelector('textarea');
   const f = feedback[emotion] ?? {};
@@ -139,7 +139,18 @@ $('font').onchange = () => {
 $('bg').onchange = () => { document.body.className = document.body.className.replace(/bg-\S+/g, '').trim(); document.body.classList.add(`bg-${$('bg').value}`); };
 $('reduce').onchange = () => { document.body.classList.toggle('reduce-motion', $('reduce').checked); playAll(); };
 $('colorblind').onchange = () => document.body.classList.toggle('colorblind', $('colorblind').checked);
-let loop = null;
-$('loop').onchange = () => { clearInterval(loop); if ($('loop').checked) loop = setInterval(playAll, 3000); };
+// Repeat (on by default): each card replays on its own after its animation ends plus a short
+// pause, so every emotion can be watched again and again.
+const PAUSE_MS = 1200;
+const timers = new Map();
+function repeat(emotion) {
+  clearTimeout(timers.get(emotion));
+  if (!$('loop').checked) return;
+  const fx = FX[emotion];
+  const words = SAMPLES[emotion].split(' ').length;
+  const length = Math.max(fx.duration + (fx.together ? 0 : words * Math.max(fx.stagger, 90)), 900);
+  timers.set(emotion, setTimeout(() => { play(emotion); repeat(emotion); }, length + PAUSE_MS));
+}
+$('loop').onchange = () => EMOTIONS.forEach((e) => (($('loop').checked ? play(e) : 0), repeat(e)));
 
 document.fonts.ready.then(playAll);
