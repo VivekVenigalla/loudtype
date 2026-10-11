@@ -1,6 +1,6 @@
 // Export: .srt captions and an After Effects script that rebuilds every line
-// as an editable text layer with word timing, size keyframes, color, and
-// markers on the loudest and most emotional moments.
+// as an editable text layer with word timing, size keyframes, color, the
+// emotion's animation, and markers on the loudest and most emotional moments.
 // `lines`: [{ line, text, emotion, confidence, words: [{word, level, size, wght, wdth, start, end}] }]
 // Times are seconds since the session started.
 
@@ -31,20 +31,81 @@ function span(line) {
   return { start, end };
 }
 
-/** "S2: " when the session labeled several speakers, else nothing. */
-export function speakerPrefix(line, lines) {
-  const several = new Set(lines.map((l) => l.speaker).filter(Boolean)).size > 1;
-  return several && line.speaker ? `S${line.speaker}: ` : '';
-}
-
 export function toSrt(lines) {
   const timed = lines.filter((l) => l.words.length);
   return timed.map((l, i) => {
     const { start, end } = span(l);
     const next = timed[i + 1] ? span(timed[i + 1]).start : Infinity;
     const out = Math.min(end + LINGER, Math.max(end, next - 0.05));
-    return `${i + 1}\n${srtTime(start)} --> ${srtTime(out)}\n${speakerPrefix(l, timed)}${l.text}\n`;
+    return `${i + 1}\n${srtTime(start)} --> ${srtTime(out)}\n${l.text}\n`;
   }).join('\n');
+}
+
+// The overlay's emotion animations (overlay/fx.js) as After Effects text animators.
+// Each animator moves one text property; an Expression Selector (based on words)
+// sets how much, per word, from the moment that word appears (its Source Text
+// keyframe), so every word plays it as it is spoken, like on stream.
+// Amount bodies set `a` (-100..100) from `t` = seconds since this word appeared
+// (or since the line started, for emotions that move in step) and `k` = the word's
+// place in the line, 0..1. Sizes are in px for the 72 px caption (1 em = 72 px).
+// Keep these ES3 and ASCII: older After Effects evaluates expressions with ExtendScript.
+const AE_FX = {
+  angry: [ // shakes sideways 3 times while growing, settles 6% bigger
+    { name: 'shake', prop: 'ADBE Text Position 3D', value: [7, 0, 0],
+      body: 'if (t > 0 && t < 0.52) a = Math.sin(t * 2 * Math.PI * 6) * 100 * (1 - t / 0.52);' },
+    { name: 'grow', prop: 'ADBE Text Scale 3D', value: [112, 112, 100],
+      body: 'if (t > 0) a = t < 0.08 ? t / 0.08 * 100 : t < 0.52 ? 100 - (t - 0.08) / 0.44 * 50 : 50;' },
+  ],
+  happy: [ // each word bounces up as it appears
+    { name: 'bounce', prop: 'ADBE Text Position 3D', value: [0, -14, 0],
+      body: 'if (t > 0 && t < 0.6) a = Math.sin(Math.PI * t / 0.6) * 100;' },
+  ],
+  sad: [ // fades in, sinks, then stays 15% smaller
+    { name: 'shrink', prop: 'ADBE Text Scale 3D', value: [85, 85, 100],
+      body: 'if (t > 0) a = Math.min(1, t / 0.66) * 100;' },
+    { name: 'sink', prop: 'ADBE Text Position 3D', value: [0, 5, 0],
+      body: 'if (t > 0 && t < 0.95) a = Math.sin(Math.PI * t / 0.95) * 100;' },
+    { name: 'fade', prop: 'ADBE Text Opacity', value: 25,
+      body: 'if (t >= 0 && t < 0.66) a = (1 - t / 0.66) * 100;' },
+  ],
+  calm: [ // breathes: word gaps widen and close twice, all words in step
+    { name: 'breathe', prop: 'ADBE Text Position 3D', value: [6.5, 0, 0], together: true, spread: true,
+      body: 'if (t > 0 && t < 3.2) { var b = Math.sin(Math.PI * t / 1.6); a = k * b * b * 100; }' },
+  ],
+  surprised: [ // pops from small to big and back
+    { name: 'pop', prop: 'ADBE Text Scale 3D', value: [120, 120, 100],
+      body: 'if (t > 0) a = t < 0.18 ? -100 + 190 * t / 0.18 : t < 0.4 ? 90 * (1 - (t - 0.18) / 0.22) : 0;' },
+  ],
+  scared: [ // fast tremble that flickers, then holds still
+    { name: 'tremble', prop: 'ADBE Text Position 3D', value: [2.2, 1.4, 0],
+      body: 'if (t > 0 && t < 0.7) a = Math.sin(t * 2 * Math.PI * 14) * 100 * (1 - t / 0.7);' },
+    { name: 'flicker', prop: 'ADBE Text Opacity', value: 60,
+      body: 'if (t > 0 && t < 0.6) a = Math.abs(Math.sin(t * 2 * Math.PI * 5)) * 100;' },
+  ],
+  disgusted: [ // leans back, wobbles, stands up straight
+    { name: 'lean', prop: 'ADBE Text Skew', value: -14,
+      body: 'if (t > 0 && t < 0.62) a = t < 0.22 ? t / 0.22 * 100 : t < 0.43 ? 100 - (t - 0.22) / 0.21 * 136 : -36 * (1 - (t - 0.43) / 0.19);' },
+  ],
+};
+
+/**
+ * The After Effects animators for one line: property, value, and the Expression
+ * Selector amount with the line's word times baked in.
+ * @param {string} emotion
+ * @param {number[]} times  when each word of the layer's text appears (the icon counts as a word)
+ */
+export function aeFx(emotion, times) {
+  const spec = AE_FX[emotion];
+  if (!spec || !times.length) return [];
+  const n = times.length;
+  return spec.map((f) => {
+    const T = `[${times.map((x) => +x.toFixed(3)).join(',')}]`;
+    const amount = `var T = ${T}; var i = Math.min(textIndex - 1, T.length - 1);`
+      + ` var t = time - T[${f.together ? 0 : 'i'}]; var k = ${n > 1 ? `i / ${n - 1}` : '0'}; var a = 0; ${f.body} [a, a, a];`;
+    // Calm spreads word i by i * 6.5 px: the property holds the last word's offset, k scales it.
+    const value = f.spread ? f.value.map((v, j) => (j === 0 ? +(v * Math.max(1, n - 1)).toFixed(1) : v)) : f.value;
+    return { name: `Loudtype ${emotion} ${f.name}`, prop: f.prop, value, amount };
+  });
 }
 
 export function highlightLabel(line) {
@@ -71,6 +132,7 @@ export function toAfterEffects(lines) {
         color: aeColor(EMOTION_COLORS[l.emotion] || EMOTION_COLORS.neutral),
         marker: highlightLabel(l),
         words: l.words.map((w) => ({ t: w.start, w: w.word, s: w.size })),
+        fx: aeFx(l.emotion, [...(ICONS[l.emotion] ? [l.words[0].start] : []), ...l.words.map((w) => w.start)]),
       };
     }),
   };
@@ -79,9 +141,33 @@ export function toAfterEffects(lines) {
   // Keep the file pure ASCII: AE may read a .jsx without a BOM in a legacy
   // encoding, which would garble the icons and any accented words.
   return `// Loudtype -> After Effects. File > Scripts > Run Script File...
-// Builds editable text layers: word-by-word Source Text, size keyframes, color, highlight markers.
+// Builds editable text layers: word-by-word Source Text, size keyframes, color,
+// the emotion's animation (text animators named "Loudtype <emotion> ..."; hide
+// one with its eye to turn it off), and highlight markers.
 (function () {
   var data = ${asciiJson(data)};
+  var skipped = 0;
+
+  // One text animator per effect, its amount from an Expression Selector based on words.
+  // Adding a property can invalidate references fetched before, so the animator
+  // is looked up again (by index) before each step.
+  function addFx(layer, fx) {
+    for (var f = 0; f < fx.length; f++) {
+      try {
+        var idx = layer.property("ADBE Text Properties").property("ADBE Text Animators").addProperty("ADBE Text Animator").propertyIndex;
+        var anim = function () { return layer.property("ADBE Text Properties").property("ADBE Text Animators").property(idx); };
+        anim().name = fx[f].name;
+        anim().property("ADBE Text Animator Properties").addProperty(fx[f].prop);
+        anim().property("ADBE Text Animator Properties").property(fx[f].prop).setValue(fx[f].value);
+        anim().property("ADBE Text Selectors").addProperty("ADBE Text Expressible Selector");
+        var sel = function () { return anim().property("ADBE Text Selectors").property(1); };
+        try { sel().property("ADBE Text Range Type2").setValue(3); } catch (e1) {} // Based On: Words
+        sel().property("ADBE Text Expressible Amount").expression = fx[f].amount;
+      } catch (e) {
+        skipped++;
+      }
+    }
+  }
   app.beginUndoGroup("Loudtype import");
   var comp = app.project.items.addComp("Loudtype captions", 1920, 1080, 1, Math.max(1, data.duration), 30);
   var highlights = comp.layers.addNull(data.duration);
@@ -131,8 +217,10 @@ export function toAfterEffects(lines) {
     if (line.marker) {
       highlights.property("Marker").setValueAtTime(line.start, new MarkerValue(line.marker));
     }
+    addFx(layer, line.fx);
   }
   app.endUndoGroup();
+  if (skipped) alert("Loudtype: " + skipped + " emotion animation(s) could not be added in this version of After Effects; the captions are complete without them.");
   comp.openInViewer();
 })();
 `;

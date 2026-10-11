@@ -97,6 +97,36 @@ export function voiceEnergy(levels) {
   return clamp(mean + 0.3 * loud - 0.3 * soft, 0, 1);
 }
 
+// Sound tags Scribe heard in the line ([laughs], [gasps]...). They only color a line
+// whose words left it neutral: laughing over "this is the one dollar room" is happy,
+// but laughing over "I hate this" stays angry (the words win, as with the voice).
+/** @type {[RegExp, string][]} */
+const SOUND_EMOTION = [
+  [/^(laugh|laughs|laughing|laughter|giggles?|giggling|chuckles?|chuckling|cheers?|cheering)$/, 'happy'],
+  [/^(gasps?|gasping)$/, 'surprised'],
+  [/^(cries|crying|sobs?|sobbing|sniffles?)$/, 'sad'],
+  [/^(screams?|screaming|shrieks?)$/, 'scared'],
+];
+export const SOUND_CONFIDENCE = 0.8;
+
+/** The emotion a sound tag stands for, or null ("sighs", "applause", "music": no single feeling). */
+export function soundEmotion(name) {
+  return SOUND_EMOTION.find(([re]) => re.test(name))?.[1] ?? null;
+}
+
+/**
+ * @template {{ emotion: string, confidence: number, reason?: string }} R
+ * @param {R} r  the line's result so far
+ * @param {string[]} sounds  sound tags in the line ("laughs")
+ * @returns {R}
+ */
+export function withSounds(r, sounds = []) {
+  if (r.emotion !== 'neutral' || !sounds.length) return r;
+  const name = sounds.find((n) => soundEmotion(n));
+  if (!name) return r;
+  return { ...r, emotion: /** @type {string} */ (soundEmotion(name)), confidence: Math.max(r.confidence, SOUND_CONFIDENCE), reason: `heard [${name}]` };
+}
+
 // emotion2vec (speech emotion from the voice itself, emotion2vec/service.py) labels →
 // Loudtype's emotions. It has no "calm": happy said with low energy reads calm.
 const VOICE_MAP = { angry: 'angry', disgusted: 'disgusted', happy: 'happy', surprised: 'surprised', sad: 'sad', fearful: 'scared' };

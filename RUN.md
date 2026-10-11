@@ -12,7 +12,7 @@ npm start
 - Offline demo: "Play demo clip" replays `replay/demo.json` (no network). Record a real one with Stop → "Save last session", then move the file into `replay/`. `node scripts/make-demo.js` regenerates the scripted clip.
 - Export: `.srt` and an After Effects `.jsx` (File → Scripts → Run Script File…).
 
-Run `npm run setup` once more to fetch the voiceprint model (speaker labels and the main-speaker filter).
+Run `npm run setup` once more to fetch the voiceprint model (the main-speaker filter).
 
 Not built yet: sync mode, stream-safe censoring (`STREAM_SAFE` does nothing), Arcade/Ink packs.
 
@@ -22,24 +22,14 @@ Tests: `npm test` (no network; starts its own server on a free port).
 
 Set **Source → Tab audio**, click Start, pick the tab playing the stream in
 Chrome's share dialog and tick **Also share tab audio**. You keep hearing it;
-Loudtype captions it like a mic (labeling everyone works well for streams with
-guests). Chrome's "Stop sharing" bar stops the session. Speech-to-text minutes
+Loudtype captions it like a mic. Chrome's "Stop sharing" bar stops the session. Speech-to-text minutes
 come from your ElevenLabs quota, so keep test runs short.
 
 ## Speakers
 
-By default Loudtype **labels everyone**: no calibration, just click Start and talk.
-Each line gets a small **S1**, **S2**… chip from an on-device voiceprint of that
-line (about a second of speech is enough). Each person's loudness is measured
-against their own normal, learned from their first few words (shown at normal
-size until then). New judge forgets every voice.
+By default Loudtype captions **everyone** as one stream: the first few voiced
+words calibrate the loudness, then everything heard is captioned.
 
 Tick **Main speaker only** before Start to caption just one person (e.g.
-streaming alone in a loud room): the first sentence calibrates them and
-everyone else is ignored.
-
-Limits: short lines ("yes", "what?") and whispers stay with the last speaker;
-similar voices may share a label, and one person who sounds very different
-(across the room vs. leaning in) can get a second label; overlapping speech is
-not supported. The .srt export prefixes lines with "S1: " when several speakers
-were heard.
+streaming alone in a loud room): the first sentence calibrates them and other
+voices near the mic are ignored (on-device voiceprint).

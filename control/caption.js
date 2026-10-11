@@ -8,11 +8,11 @@
  * @typedef {'neutral' | 'happy' | 'calm' | 'angry' | 'sad' | 'surprised' | 'scared' | 'disgusted'} Emotion
  * @typedef {{ size: number, wght: number }} LevelStyle
  * @typedef {{ level: Level, size: number, wght: number, wdth: number }} WordStyle
- * @typedef {WordStyle & { word: string, start?: number, end?: number, speaker?: number }} CaptionWord
+ * @typedef {WordStyle & { word: string, start?: number, end?: number, event?: string }} CaptionWord
+ *   event: a sound tag, not a spoken word ("laughs" for Scribe's [laughs]); `word` is then "[laughs]"
  *   start/end: seconds since the session started (committed words only)
  * @typedef {{ type: 'line', line: number, final: boolean, provisional: boolean,
- *   emotion: Emotion, confidence: number, words: CaptionWord[], speaker?: number }} LineEvent
- *   speaker: label-everyone mode, who said the line (1-based; the overlay shows "S1")
+ *   emotion: Emotion, confidence: number, words: CaptionWord[] }} LineEvent
  * @typedef {LineEvent
  *   | { type: 'calib', progress: number }
  *   | { type: 'pack', pack: string }

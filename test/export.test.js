@@ -74,3 +74,58 @@ test('after effects: an empty session still makes a valid comp', () => {
   assert.doesNotThrow(() => new Function(src));
   assert.equal(embeddedData(src).duration, 10);
 });
+
+// Runs one Expression Selector amount the way After Effects does (textIndex 1-based, time in s).
+const amountAt = (expr, textIndex, time) => new Function('textIndex', 'time', `${expr.replace(/\[a, a, a\];$/, 'return [a, a, a];')}`)(textIndex, time);
+
+test('after effects: every emotion gets its animation; neutral gets none', async () => {
+  const { EMOTIONS } = await import('../control/caption.js');
+  const { aeFx } = await import('../control/export.js');
+  for (const e of EMOTIONS) {
+    const fx = aeFx(e, [1, 1.4, 1.9]);
+    if (e === 'neutral') { assert.deepEqual(fx, []); continue; }
+    assert.ok(fx.length >= 1, e);
+    for (const f of fx) {
+      assert.match(f.prop, /^ADBE Text (Position 3D|Scale 3D|Skew|Opacity)$/);
+      assert.match(f.name, new RegExp(`^Loudtype ${e} `));
+      assert.match(f.amount, /^[\x20-\x7e]*$/, 'expression must be ASCII');
+      assert.doesNotMatch(f.amount, /=>|`|\b(let|const)\s/, 'expression must stay ES3');
+      for (let t = 0; t <= 5; t += 0.01) {
+        for (const idx of [1, 2, 3]) {
+          const [a, b, c] = amountAt(f.amount, idx, t);
+          assert.ok(Number.isFinite(a) && a >= -100.001 && a <= 100.001 && a === b && b === c, `${f.name} at ${t}: ${a}`);
+        }
+      }
+    }
+  }
+});
+
+test('after effects: words animate from when they appear and rest like the overlay', async () => {
+  const { aeFx } = await import('../control/export.js');
+  const at = (e, name, idx, t) => amountAt(aeFx(e, [1, 1.4, 1.9]).find((f) => f.name.endsWith(name)).amount, idx, t)[0];
+  assert.equal(at('happy', 'bounce', 2, 1.3), 0);            // word 2 appears at 1.4: still at rest before
+  assert.ok(at('happy', 'bounce', 2, 1.7) > 90);             // mid-bounce 0.3 s after it appears
+  assert.equal(at('angry', 'grow', 1, 9), 50);               // 50% of +12% = rests 6% bigger
+  assert.equal(at('sad', 'shrink', 3, 9), 100);              // rests at 85%
+  assert.equal(at('surprised', 'pop', 1, 1), 0);
+  assert.ok(at('surprised', 'pop', 1, 1.01) < -85);          // starts small (about 80%)
+  for (const e of ['happy', 'calm', 'scared', 'disgusted']) {
+    for (const f of aeFx(e, [1, 1.4, 1.9])) assert.equal(amountAt(f.amount, 2, 9)[0], 0, `${f.name} at rest`);
+  }
+  // Calm: word gaps widen in step; the first word stays put, the last moves the most.
+  const breathe = aeFx('calm', [1, 1.4, 1.9])[0];
+  assert.deepEqual(breathe.value, [13, 0, 0]);
+  assert.equal(amountAt(breathe.amount, 1, 1.8)[0], 0);
+  assert.ok(amountAt(breathe.amount, 3, 1.8)[0] > 95);
+  assert.ok(Math.abs(amountAt(breathe.amount, 2, 1.8)[0] - amountAt(breathe.amount, 3, 1.8)[0] / 2) < 0.01);
+});
+
+test('after effects: each line embeds its animators with its own word times (icon first)', () => {
+  const data = embeddedData(toAfterEffects(LINES));
+  assert.deepEqual(data.lines[0].fx, []);                                 // neutral
+  assert.deepEqual(data.lines[1].fx.map((f) => f.name), ['Loudtype happy bounce']);
+  assert.match(data.lines[1].fx[0].amount, /var T = \[1\.6,1\.6,2\]/);    // star, WE, WON
+  const src = toAfterEffects(LINES);
+  assert.match(src, /ADBE Text Expressible Selector/);
+  assert.match(src, /addFx\(layer, line\.fx\)/);
+});

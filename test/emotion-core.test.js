@@ -102,3 +102,16 @@ test('emotion2vec only colors lines whose words are neutral, and only when very 
   assert.equal(fuse(neutral, { angry: 0.7, neutral: 0.3 }).emotion, 'neutral');
   assert.equal(fuse(angry, { happy: 0.99 }).emotion, 'angry'); // the words win
 });
+
+test('sound tags color only lines the words left neutral', async () => {
+  const { withSounds, soundEmotion } = await import('../control/emotion-core.js');
+  const neutral = { emotion: 'neutral', confidence: 0.2 };
+  assert.equal(withSounds(neutral, ['laughs']).emotion, 'happy');
+  assert.equal(withSounds(neutral, ['laughs']).reason, 'heard [laughs]');
+  assert.equal(withSounds(neutral, ['gasps']).emotion, 'surprised');
+  assert.equal(withSounds(neutral, ['crying']).emotion, 'sad');
+  assert.equal(withSounds(neutral, ['sighs']).emotion, 'neutral');            // a sigh can be relief or sadness
+  assert.equal(withSounds(neutral, ['applause', 'laughter']).emotion, 'happy');
+  assert.equal(withSounds({ emotion: 'angry', confidence: 0.9 }, ['laughs']).emotion, 'angry'); // the words win
+  assert.equal(soundEmotion('music'), null);
+});

@@ -1,9 +1,9 @@
 // Overlay: draws what the control panel sends. Holds no state worth saving,
 // so OBS can reload it at any time.
 import { ICONS, FONTS } from '../control/caption.js';
-import { FX, playFx } from './fx.js';
+import { FX, playFx, playSoundFx } from './fx.js';
 
-const CLEAR_AFTER_MS = 6000; // a speaker's captions fade after this much of their silence
+const CLEAR_AFTER_MS = 6000; // captions fade after this much silence
 
 const stage = document.getElementById('stage');
 const calib = document.getElementById('calib');
@@ -35,77 +35,53 @@ fetch('/config').then((r) => r.json()).then((c) => {
   setReduceMotion(settings.REDUCE_MOTION);
 }).catch(() => {});
 
-// Roll-up captions, one lane per speaker ("thread"): words keep appending to
-// the bottom row; when it is full that row moves up and the oldest row drops
-// off. Nothing is cleared between sentences, so the last words stay readable
-// for context. At most MAX_ROWS rows are on screen in total: one speaker gets
-// both rows; two speakers get one row each (the two most recently active).
-// Rows are left-aligned so words already on screen never shift sideways.
+// Roll-up captions in one lane: words keep appending to the bottom row; when
+// it is full that row moves up and the oldest row drops off. Nothing is cleared
+// between sentences, so the last words stay readable for context. At most
+// MAX_ROWS rows are on screen. Rows are left-aligned so words already on screen
+// never shift sideways.
 const MAX_ROWS = 2;
-const MAX_LANES = 2;
 const KEEP_LINES = 12;           // caption lines a lane remembers (only the visible tail is drawn)
 const STAGGER_MS = 90;           // words that arrive together fade in one by one
 const STAGGER_MAX_MS = 450;
 
-/** @type {Map<string, Lane>} speaker key ('1', '2', … or 'all') → lane */
+/** @type {Map<string, Lane>} the caption lane ('all'), while it is on screen */
 const lanes = new Map();
 
 /**
- * @typedef {{ key: string, el: HTMLElement, tag: HTMLElement, rowsEl: HTMLElement,
+ * @typedef {{ key: string, el: HTMLElement, rowsEl: HTMLElement,
  *   lines: Map<number, { emotion: string, provisional: boolean, words: object[] }>,
  *   spans: Map<string, HTMLElement>, startKey: string | null, lastAt: number, fadeTimer?: number }} Lane
  */
 
-function getLane(key, speaker) {
+function getLane(key) {
   let lane = lanes.get(key);
   if (lane) return lane;
   const el = document.createElement('div');
   el.className = 'lane';
-  const tag = document.createElement('span');
-  tag.className = 'speaker';
-  tag.textContent = speaker ? `S${speaker}` : '';
   const rowsEl = document.createElement('div');
   rowsEl.className = 'rows';
   el.append(rowsEl);
-  lane = { key, el, tag, rowsEl, lines: new Map(), spans: new Map(), startKey: null, lastAt: 0 };
-  // A third speaker takes the place (on screen) of the one quiet the longest, so nothing jumps.
-  const visible = [...lanes.values()];
-  if (visible.length >= MAX_LANES) {
-    const old = visible.reduce((a, b) => (a.lastAt <= b.lastAt ? a : b));
-    old.el.replaceWith(el);
-    lanes.delete(old.key);
-  } else {
-    stage.appendChild(el);
-  }
+  lane = { key, el, rowsEl, lines: new Map(), spans: new Map(), startKey: null, lastAt: 0 };
+  stage.appendChild(el);
   lanes.set(key, lane);
-  for (const other of [...lanes.values()]) if (other !== lane) layout(other); // they now share the rows
   return lane;
 }
 
-const laneKey = (w, msg) => String(w.speaker ?? msg.speaker ?? 'all');
-
 function renderLine(msg) {
-  // A line's words can belong to different speakers (turns inside one commit).
-  const groups = new Map();
-  for (const w of msg.words) {
-    const k = laneKey(w, msg);
-    if (!groups.has(k)) groups.set(k, { speaker: w.speaker ?? msg.speaker, words: [] });
-    groups.get(k).words.push(w);
+  const existing = lanes.get('all');
+  // A revision can drop every word (e.g. someone else's line in main-speaker mode): take it off screen.
+  if (!msg.words.length) {
+    if (existing?.lines.delete(msg.line)) layout(existing);
+    return;
   }
-  // Revisions can move or drop words: take this line out of lanes it no longer has words in.
-  for (const lane of lanes.values()) {
-    if (lane.lines.has(msg.line) && !groups.has(lane.key)) { lane.lines.delete(msg.line); layout(lane); }
-  }
-  const now = performance.now();
-  for (const [k, g] of groups) {
-    const lane = getLane(k, g.speaker);
-    lane.lines.set(msg.line, { emotion: msg.emotion || 'neutral', provisional: !!msg.provisional, words: g.words });
-    lane.lastAt = now;
-    lane.el.classList.remove('fading');
-    scheduleFade(lane);
-    while (lane.lines.size > KEEP_LINES) lane.lines.delete(Math.min(...lane.lines.keys()));
-    layout(lane);
-  }
+  const lane = getLane('all');
+  lane.lines.set(msg.line, { emotion: msg.emotion || 'neutral', provisional: !!msg.provisional, words: msg.words });
+  lane.lastAt = performance.now();
+  lane.el.classList.remove('fading');
+  scheduleFade(lane);
+  while (lane.lines.size > KEEP_LINES) lane.lines.delete(Math.min(...lane.lines.keys()));
+  layout(lane);
 }
 
 /** The lane's words in order, each with its line's emotion; an emotion icon opens each tinted line. */
@@ -127,7 +103,7 @@ function spanFor(lane, t, fresh) {
     span.addEventListener('animationend', () => span.classList.remove('enter', 'pop')); // moving rows must not replay it
     lane.spans.set(t.key, span);
   }
-  span.className = `${t.icon ? 'icon' : 'w'} ${t.emotion}${t.provisional ? ' provisional' : ''}`;
+  span.className = `${t.icon ? 'icon' : 'w'} ${t.emotion}${t.provisional ? ' provisional' : ''}${t.w?.event ? ' event' : ''}`;
   let enterDelay = 0;
   if (t.icon) {
     span.textContent = t.icon;
@@ -152,7 +128,9 @@ function spanFor(lane, t, fresh) {
   // The line's emotion is final (not the live guess): play its animation once per emotion.
   if (!t.provisional && span.dataset.fx !== t.emotion) {
     span.dataset.fx = t.emotion;
-    if (!reduceMotion) playFx(span, t.emotion, { index: t.index, icon: !!t.icon, delay: enterDelay });
+    if (!reduceMotion && !(t.w?.event && playSoundFx(span, t.w.event, enterDelay))) {
+      playFx(span, t.emotion, { index: t.index, icon: !!t.icon, delay: enterDelay });
+    }
   }
   return span;
 }
@@ -170,35 +148,32 @@ function newRow(lane) {
  * only depend on the words before them, so rows never reflow as words arrive.
  */
 function layout(lane, { refill = false } = {}) {
-  const rowsMax = Math.max(1, Math.floor(MAX_ROWS / Math.max(1, lanes.size)));
+  const rowsMax = MAX_ROWS;
   const all = tokens(lane);
   const keys = new Set(all.map((t) => t.key));
   for (const [k, span] of lane.spans) if (!keys.has(k)) { span.remove(); lane.spans.delete(k); }
   if (!all.length) { lane.el.remove(); lanes.delete(lane.key); layoutAll(); return; }
 
-  // refill: the lane just got more rows (another speaker left), so lay out its remembered words again from the top.
+  // refill (a new font or window size): lay out the remembered words again from the top.
   let start = refill ? 0 : Math.max(0, all.findIndex((t) => t.key === lane.startKey));
   const fresh = { n: 0 };
   const max = stage.clientWidth;
   for (;;) {
     lane.rowsEl.replaceChildren();
     const rows = [newRow(lane)];
-    if (lane.tag.textContent) rows[0].appendChild(lane.tag);
-    const indent = lane.tag.textContent ? lane.tag.offsetWidth : 0;
     const starts = [start];
-    let width = indent;
+    let width = 0;
     for (let i = start; i < all.length; i++) {
       const span = spanFor(lane, all[i], fresh);
       rows.at(-1).appendChild(span);
       width += span.offsetWidth;
-      if (width > max && rows.at(-1).children.length > (rows.length === 1 && indent ? 2 : 1)) {
+      if (width > max && rows.at(-1).children.length > 1) {
         span.remove();
         const row = newRow(lane);
-        row.style.paddingLeft = `${indent}px`; // later rows line up under the first word, not the tag
         row.appendChild(span);
         rows.push(row);
         starts.push(i);
-        width = indent + span.offsetWidth;
+        width = span.offsetWidth;
       }
     }
     if (rows.length <= rowsMax) break;
@@ -207,10 +182,10 @@ function layout(lane, { refill = false } = {}) {
   lane.startKey = all[start].key;
 }
 
-/** The number of lanes changed: every lane's row count may have too. */
+/** Word widths changed (font, window size): lay the words out again. */
 function layoutAll() { for (const lane of [...lanes.values()]) layout(lane, { refill: true }); }
 
-/** Each speaker's lane fades after their own silence; the others then get its rows. */
+/** The captions fade after CLEAR_AFTER_MS of silence. */
 function scheduleFade(lane) {
   clearTimeout(lane.fadeTimer);
   lane.fadeTimer = setTimeout(() => {

@@ -113,23 +113,6 @@ body.font-readable { --font: 'Atkinson Hyperlegible Next', 'Roboto Flex', sans-s
 }
 .icon:empty { display: none; }
 
-/* Speaker label (label-everyone mode): a small neutral chip on the baseline.
-   Never colored: color means emotion. */
-.speaker {
-  align-self: baseline;
-  font-size: 0.5em;
-  font-variation-settings: 'wght' 800, 'wdth' 110;
-  color: #111;
-  background: #fff;
-  border: 0.08em solid #111;
-  border-radius: 0.3em;
-  padding: 0.08em 0.4em 0.02em;
-  margin-right: 0.4em;
-  letter-spacing: 0.05em;
-  box-shadow: 0 0.06em 0.2em rgba(0, 0, 0, 0.6);
-}
-.speaker:empty { display: none; }
-
 .w, .icon {
   display: inline-block;
   padding: 0 0.14em;   /* word spacing scales with the word, so shouts don't jam together */
@@ -146,6 +129,14 @@ body.font-readable { --font: 'Atkinson Hyperlegible Next', 'Roboto Flex', sans-s
   /* No size transition: the only motion is the fade-in and the shout pop. */
 }
 .w.hidden { display: none; }
+/* Sound tags ([laughs], [applause]): not speech, so smaller, slanted and a little dimmer,
+   the way subtitles for deaf viewers set them apart. They take the line's color. */
+.w.event {
+  font-size: calc(0.75em * var(--size, 1));
+  font-style: italic;
+  opacity: 0.85;
+  letter-spacing: 0.02em;
+}
 
 /* Whisper: a thick outline would eat thin strokes, so use a thinner one plus a
    soft dark halo, and open the letter spacing a touch so it stays readable. */

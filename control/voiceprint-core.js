@@ -22,27 +22,13 @@ export const STRICTNESS = {
   strict: { MATCH: 0.6, OTHER: 0.45, MATCH_SHORT: 0.55, OTHER_SHORT: 0.3 },
 };
 
-/**
- * Label everyone (Speakers auto mode): no calibration. Each line's voiceprint
- * joins the closest speaker heard so far, or starts a new one.
- */
-export const DIARIZE = {
-  JOIN: 0.4,         // a line this close to a speaker's voiceprint is theirs (eval: same speaker 0.66-0.84, others <= 0.2, similar TTS voices up to 0.59)
-  NEW_BELOW: 0.25,   // only a line under this for everyone heard starts a new speaker; in between it goes to the closest
-                     // (on a MacBook mic a person's own lines scored under 0.4 and kept spawning new speakers, whose lanes pushed words off screen)
-  NEW_MIN_SEC: 1.0,  // only a line this long (and voiced) may start a new speaker; shorter ones stay with the last speaker
-  MERGE: 0.55,       // two speakers whose voiceprints grow this close were one person: merged
-  MAX_SPEAKERS: 8,
-  LEARN_MAX: 12,     // lines averaged into a speaker's voiceprint
-};
-
 export const VOICE = {
   ...STRICTNESS.relaxed,
   LEARN_MAX: 8,      // lines judged 'match' that refine a voiceprint (it follows the speaker's mic, room and loudness)
   LONG_SEC: 1.0,
   MIN_SEC: 0.4,      // shorter audio isn't judged
   MAX_SEC: 6,        // only the last 6 s of a long line is embedded
-  MARGIN: 0.08,      // with several profiles, the best must beat the next by this to be sure
+  MARGIN: 0.08,      // with several profiles, the best must beat the next by this to be sure (one profile today)
   MIN_VOICED: 0.35,  // a mostly unvoiced (whispered) line has no voiceprint to compare
   ENROLL_MIN_SEC: 1.2,
   PAD_SEC: 0.05,     // word timestamps are tight; take a little around each
@@ -146,86 +132,10 @@ export class Voiceprints {
     this.strictness = 'relaxed';
     /** @type {Verdict | null} */
     this.last = null;
-    /** Label-everyone mode: one voiceprint per speaker heard, in speaker order. @type {{ vecs: ArrayLike<number>[], alias: number | null }[]} */
-    this.speakers = [];
   }
 
-  /** Forget every speaker heard (New judge in label-everyone mode). */
-  resetSpeakers() { this.speakers = []; }
-
-  /** The speaker a (possibly merged) index now points to. */
-  resolve(i) {
-    while (this.speakers[i]?.alias != null) i = /** @type {number} */ (this.speakers[i].alias);
-    return i;
-  }
-
-  /**
-   * Label everyone: which speaker said [start, end]? Never 'other'. Live
-   * (partial) checks only guess; committed lines may start a new speaker.
-   * Speaker i's loudness profile is Speakers.profile(i), created when first styled.
-   * @returns {Promise<Verdict | null>}
-   */
-  async diarize(prosody, start, end, live = false) {
-    const last = prosody.activeIndex ?? 0;
-    const keep = (reason, seconds = 0) => (this.speakers.length || !live
-      ? { verdict: /** @type {const} */ ('match'), best: this.speakers.length ? this.resolve(last) : this.add(prosody, null), score: 0, scores: [], seconds, reason }
-      : null);
-    const st = prosody.stats(start, end);
-    if (!st || st.db < prosody.noiseDb + VOICE.ABOVE_NOISE_DB) return keep('no voice in it: kept with the last speaker');
-    if (st.voiced < VOICE.MIN_VOICED) return keep('whispered: kept with the last speaker');
-    const audio = this.ring.slice(Math.max(start, end - VOICE.MAX_SEC) - VOICE.PAD_SEC, end + VOICE.PAD_SEC);
-    const seconds = audio ? audio.length / this.rate : 0;
-    if (seconds < VOICE.MIN_SEC) return keep('too short: kept with the last speaker', seconds);
-    const vec = await this.embed(audio);
-    const scores = this.speakers.map((sp) => (sp.alias == null && sp.vecs.length ? cosine(centroid(sp.vecs), vec) : null));
-    let best = -1, score = -Infinity;
-    scores.forEach((x, i) => { if (x != null && x > score) { score = x; best = i; } });
-    if (live) return best >= 0 && score >= DIARIZE.JOIN ? { verdict: 'match', best, score, scores, seconds } : null;
-    let index;
-    if (best >= 0 && score >= DIARIZE.NEW_BELOW) index = best;
-    else if (seconds < DIARIZE.NEW_MIN_SEC) return keep('too short to tell: kept with the last speaker', seconds);
-    else {
-      const unheard = this.speakers.findIndex((sp) => sp.alias == null && !sp.vecs.length); // started by a short line
-      index = unheard >= 0 ? unheard : this.speakers.length < DIARIZE.MAX_SPEAKERS ? this.add(prosody, null) : best;
-    }
-    // Only confident matches (or a new speaker's first line) shape a voiceprint; a weak match
-    // (NEW_BELOW..JOIN) is labeled but would blur it toward someone else.
-    const sp = this.speakers[index];
-    if (index !== best || score >= DIARIZE.JOIN) {
-      sp.vecs.push(vec);
-      if (sp.vecs.length > DIARIZE.LEARN_MAX) sp.vecs.shift();
-      this.merge(prosody);
-    }
-    const verdict = { verdict: /** @type {const} */ ('match'), best: this.resolve(index), score: Math.max(score, 0), scores, seconds, isNew: index !== best };
-    this.last = verdict;
-    return verdict;
-  }
-
-  /** A new speaker. */
-  add(prosody, vec) {
-    this.speakers.push({ vecs: vec ? [vec] : [], alias: null });
-    return this.speakers.length - 1;
-  }
-
-  /** Two speakers whose voiceprints converged were one person: the later one becomes an alias. */
-  merge(prosody) {
-    for (let i = 0; i < this.speakers.length; i++) {
-      for (let j = i + 1; j < this.speakers.length; j++) {
-        const a = this.speakers[i], b = this.speakers[j];
-        if (a.alias != null || b.alias != null || !a.vecs.length || !b.vecs.length) continue;
-        if (cosine(centroid(a.vecs), centroid(b.vecs)) >= DIARIZE.MERGE) {
-          a.vecs.push(...b.vecs);
-          a.vecs.splice(0, Math.max(0, a.vecs.length - DIARIZE.LEARN_MAX));
-          b.vecs = [];
-          b.alias = i;
-          prosody.mergeProfile?.(j, i);
-        }
-      }
-    }
-  }
-
-  /** The profiles a session compares against: one per enrolled speaker. */
-  profilesOf(prosody) { return prosody.multi ? prosody.profiles : [prosody]; }
+  /** The profiles a session compares against: the main speaker's. */
+  profilesOf(prosody) { return [prosody]; }
 
   /** How many profiles have a voiceprint. */
   count(prosody) { return this.profilesOf(prosody).filter((p) => this.enrolled.get(p)?.vec).length; }
@@ -260,13 +170,12 @@ export class Voiceprints {
 
   /**
    * Whose voice is in [start, end] (AudioContext seconds)? null when there is
-   * nothing to compare against (filter off, nobody enrolled yet, still enrolling).
+   * nothing to compare against (filter off, nobody enrolled yet).
    * @returns {Promise<Verdict | null>}
    */
-  async identify(prosody, start, end, live = false) {
-    if (prosody.auto) return this.diarize(prosody, start, end, live);
+  async identify(prosody, start, end, _live = false) {
     await this.refresh(prosody);
-    if (!prosody.focus || prosody.enrolling) return null;
+    if (!prosody.focus) return null;
     const entries = this.profilesOf(prosody).map((p) => this.enrolled.get(p));
     const vecs = entries.map((e) => (e?.vec ? centroid([e.vec, ...e.learned]) : null));
     if (vecs.every((v) => !v)) return null;

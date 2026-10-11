@@ -2,12 +2,13 @@
 import { startAudio } from './audio.js';
 import { openScribe } from './stt.js';
 import { THRESHOLDS } from './prosody.js';
-import { Speakers } from './speakers.js';
+import { Prosody } from './prosody.js';
 import { Transcript } from './transcript.js';
 import { classify, warmUp, voiceScores } from './emotion.js';
 import { embed, loadVoiceModel } from './voiceprint.js';
-import { AudioRing, Voiceprints, VOICE, STRICTNESS, DIARIZE } from './voiceprint-core.js';
+import { AudioRing, Voiceprints, VOICE, STRICTNESS } from './voiceprint-core.js';
 import { Relay } from './relay.js';
+import { CaptionSync } from './sync.js';
 import { download, toSrt, toAfterEffects } from './export.js';
 import { FONTS } from './caption.js';
 
@@ -20,13 +21,17 @@ const ui = {
   promptNext: $('prompt-next'), promptHide: $('prompt-hide'), director: $('director'),
   dvLive: $('dv-live'), dvRef: $('dv-ref'), dvWord: $('dv-word'), dvLine: $('dv-line'), dvTicks: $('dv-ticks'),
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), dvAudio: $('dv-audio'), focus: $('focus'),
-  speakerList: $('speaker-list'),
-  font: $('font'), reduceMotion: $('reduce-motion'),
+  font: $('font'), reduceMotion: $('reduce-motion'), delay: $('delay'), delayInfo: $('delay-info'),
   strictness: $('strictness'), source: $('source'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
 const relay = new Relay();
+// Per-browser conveniences (font, motion, delay); never required: storage can be blocked.
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
 let session = null; // the running session
 let latest = null;  // the newest session, running or stopped: what Export and the log show
 let lastRecording = null;
@@ -37,8 +42,9 @@ let forcedMood = null; // creator override from hotkeys; null = automatic
 
 fetch('/config').then((r) => r.json()).then((c) => {
   config = { ...config, ...c };
-  ui.focus.checked = config.IGNORE_BACKGROUND === true; // default: label everyone
+  ui.focus.checked = config.IGNORE_BACKGROUND === true; // default: caption everyone
   applyLookDefaults(); // config's CAPTION_FONT / REDUCE_MOTION, unless chosen in this browser
+  if (store.get('loudtype.delay') == null) ui.delay.value = String(config.STREAM_DELAY_SECS ?? 0);
   sendLook();
 }).catch(() => {});
 
@@ -58,24 +64,34 @@ async function start() {
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
 
-  const s = { prosody: new Speakers({ auto: !ui.focus.checked }), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null, voice: null };
+  const s = { prosody: new Prosody(), transcript: null, audio: null, stt: null, retries: 0, lastError: null, mic: null, gateSent: null, voice: null };
   // Voiceprints: only the calibrated voices are captioned. Audio stays in memory (last 60 s).
   s.voiceprints = new Voiceprints({ embed, ring: new AudioRing() });
+  s.prosody.focus = ui.focus.checked; // off (default): everyone is captioned, no voiceprint filter
   s.voiceprints.strictness = ui.strictness.value;
   s.prosody.sensitivity = Number(ui.sensitivity.value);
   s.voiceHistory = []; // last lines' voiceprint verdicts, for the mic report
-  s.transcript = new Transcript({
-    prosody: s.prosody,
+  // Sync mode: holds each finished line until the delayed stream says its words (sync.js).
+  // Pending lines still go out after Stop: viewers are seconds behind.
+  s.sync = new CaptionSync({
     // A line from an older session can still be classifying after Start; it
     // must not reach the new session's overlay, log or recording.
-    send: (msg) => { if (latest === s) relay.send(msg); },
-    classify: (text, levels, tone, taught, span) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE, taught,
+    out: (msg) => { if (latest === s) relay.send(msg); },
+    now: () => s.audio?.ctx.currentTime ?? 0,
+    origin: () => s.transcript?.origin ?? null,
+    lag: () => s.transcript?.partialLag() ?? 0.8,
+    delay: streamDelay(),
+  });
+  s.transcript = new Transcript({
+    prosody: s.prosody,
+    send: (msg) => { if (latest === s) s.sync.send(msg); },
+    classify: (text, levels, tone, taught, span, sounds) => (emotionReady ? classify(text, levels, tone, config.EMOTION_MIN_CONFIDENCE, taught,
       // emotion2vec hears the line's audio (pre-gate, from memory), when its local service runs
-      config.EMOTION2VEC && span ? voiceScores(s.voiceprints.ring.slice(span.start - 0.1, span.end + 0.2)) : null) : null),
+      config.EMOTION2VEC !== false && span ? voiceScores(s.voiceprints.ring.slice(span.start - 0.1, span.end + 0.2)) : null, sounds) : null),
     // While a "teach" card is up, the line shows the mood being taught (feedback that it was heard).
     mood: () => forcedMood ?? teachingMood(),
     // Second pass through ElevenLabs' batch Scribe v2 (more accurate words; ~1 s later, fine for delayed streams).
-    refine: config.STT_REFINE ? (start, end) => refineLine(s.voiceprints.ring, start, end) : null,
+    refine: config.STT_REFINE !== false ? (start, end) => refineLine(s, start, end) : null,
     identify: (start, end, live) => (voiceReady ? s.voiceprints.identify(s.prosody, start, end, live) : null),
     onStyled: (voice) => {
       if (voiceReady) s.voiceprints.refresh(s.prosody); // learn the voiceprint from the calibration words
@@ -90,10 +106,11 @@ async function start() {
     },
     onFinal: (line, info, tone) => {
       if (latest !== s) return;
+      showDelayInfo(s);
       const teach = PROMPTS[promptIdx]?.teach;
-      const book = s.prosody.toneBookFor(line.speaker);
+      const book = s.prosody.tones;
       if (teach && book.teach(teach, tone)) {
-        const who = line.speaker ? `S${line.speaker}'s` : 'your';
+        const who = 'your';
         if (teach === 'neutral') setStatus(`Learned ${who} normal voice`, 'ok');
         else if (book.isUsable(teach)) setStatus(`Learned ${who} ${teach} voice ✓ (moods it can hear now: ${book.usable.join(', ')})`, 'ok');
         else setStatus(`That ${teach} sounded too close to ${who} normal voice. Exaggerate it and say it again.`, 'warn');
@@ -216,15 +233,6 @@ function sendCalib(s) {
   const p = s.prosody;
   const progress = s.prosody.calibration;
   relay.send({ type: 'calib', progress });
-  if (p.multi) {
-    const heard = p.profiles.map((profile, i) => ({ profile, i })).filter(({ i }) => s.voiceprints.resolve(i) === i);
-    ui.calib.textContent = heard.length ? `Labeling everyone: ${heard.length} voice${heard.length > 1 ? 's' : ''} heard` : 'Labeling everyone: start talking (no calibration needed)';
-    ui.speakerList.textContent = heard.map(({ profile, i }) =>
-      `S${i + 1}: ${profile.calibrated ? `normal ${profile.ref.toFixed(0)} dBFS` : `learning loudness ${Math.round(profile.calibration * 100)}%`}`
-    ).join(' · ');
-    return;
-  }
-  ui.speakerList.textContent = '';
   ui.calib.textContent = progress >= 1 ? 'Calibrated to your voice' : `Learning your voice… ${Math.round(progress * 100)}%`;
 }
 
@@ -233,7 +241,7 @@ function logLine(line) {
   const row = document.createElement('div');
   row.className = `row ${line.emotion}`;
   row.dataset.line = line.line;
-  row.textContent = `${line.speaker ? `S${line.speaker} ` : ''}[${line.emotion} ${line.confidence.toFixed(2)}] ` +
+  row.textContent = `[${line.emotion} ${line.confidence.toFixed(2)}] ` +
     line.words.map((w) => (w.level === 'normal' ? w.word : `${w.word}(${w.level}${w.wdth > 100 ? ',w' + w.wdth : ''})`)).join(' ');
   const old = ui.log.querySelector(`[data-line="${line.line}"]`); // a late timestamped commit re-finalizes a line
   if (old) old.replaceWith(row);
@@ -289,16 +297,9 @@ function showLive(p) {
   const d = p.liveDelta();
   ui.dvLive.style.left = d == null ? '50%' : dvPos(d);
   ui.dvLive.style.opacity = d == null ? 0.25 : 1;
-  if (p.multi) {
-    const a = p.profiles[p.activeIndex];
-    ui.dvRef.textContent = !a ? 'Labeling everyone: nobody heard yet'
-      : a.calibrated ? `S${p.activeIndex + 1} talking: their normal ${a.ref.toFixed(1)} dBFS (learned from their voice)`
-      : `S${p.activeIndex + 1} talking: learning their loudness… ${Math.round(a.calibration * 100)}%`;
-  } else {
-    ui.dvRef.textContent = p.calibrated
-      ? `Main speaker: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
-      : `Learning the main speaker's voice… ${Math.round(p.calibration * 100)}%`;
-  }
+  ui.dvRef.textContent = p.calibrated
+    ? `Speaker: normal ${p.ref.toFixed(1)} dBFS${p.pitch ? `, pitch ${Math.round(p.pitch)} Hz` : ''} (learned from their voice)`
+    : `Learning the speaker's voice… ${Math.round(p.calibration * 100)}%`;
   const gate = p.gateDb();
   const snr = p.calibrated ? p.ref - p.noiseDb : null;
   ui.dvRoom.textContent = `Room noise: ${p.noiseDb.toFixed(1)} dBFS · ` + (gate === -Infinity
@@ -316,18 +317,12 @@ const thresholdsOf = (s, v) => {
 function showVoice(s) {
   const p = s.prosody;
   if (!voiceReady) { ui.dvVoice.textContent = 'Voiceprint: loading model…'; return; }
-  if (p.multi) {
-    const v = s.voice;
-    ui.dvVoice.textContent = `Voiceprint: labeling everyone` + (!v ? '' : ` · last line: S${v.best + 1}${v.isNew ? ' (new voice)' : ''}`
-      + (v.reason ? ` (${v.reason})` : ` (similarity ${v.score.toFixed(2)}; same speaker ≥ ${DIARIZE.JOIN})`));
-    return;
-  }
-  const n = s.voiceprints.count(p), of = p.multi ? p.profiles.length : 1;
+  if (!p.focus) { ui.dvVoice.textContent = 'Voiceprint: off (everyone is captioned; tick "Main speaker only" to filter)'; return; }
+  const n = s.voiceprints.count(p);
   const v = s.voice;
-  const who = (i) => (p.multi ? `speaker ${i + 1}` : 'you');
-  ui.dvVoice.textContent = `Voiceprint: ${n}/${of} enrolled` + (!v ? '' : v.reason
+  ui.dvVoice.textContent = `Voiceprint: ${n ? 'enrolled' : 'not enrolled yet'}` + (!v ? '' : v.reason
     ? ` · last line: unsure (${v.reason})`
-    : ` · last line: ${v.verdict === 'match' ? `${who(v.best)} ✓` : v.verdict === 'other' ? 'someone else ✗' : 'unsure (kept)'} (${v.score.toFixed(2)}; ${s.voiceprints.strictness}: dropped under ${thresholdsOf(s, v).OTHER})`);
+    : ` · last line: ${v.verdict === 'match' ? 'you ✓' : v.verdict === 'other' ? 'someone else ✗' : 'unsure (kept)'} (${v.score.toFixed(2)}; ${s.voiceprints.strictness}: dropped under ${thresholdsOf(s, v).OTHER})`);
 }
 // Auto gain or noise suppression would flatten the loudness Loudtype measures;
 // audio.js asks Chrome to turn them off, and this shows whether it did.
@@ -367,27 +362,35 @@ function micReport(s) {
     gateUnvoicedDb: r1(Number.isFinite(p.gateUnvoicedDb()) ? p.gateUnvoicedDb() : null),
     sensitivity: p.sensitivity,
     voiceprints: { modelReady: voiceReady, strictness: s.voiceprints.strictness, enrolled: s.voiceprints.count(p),
-      recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, speaker: p.multi ? v.best + 1 : undefined, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
+      recentLines: s.voiceHistory.map((v) => ({ verdict: v.verdict, score: Math.round(v.score * 100) / 100, seconds: r1(v.seconds), reason: v.reason })),
       lastLine: s.voice && { verdict: s.voice.verdict, score: Math.round(s.voice.score * 100) / 100, scores: s.voice.scores.map((x) => (x == null ? null : Math.round(x * 100) / 100)), seconds: r1(s.voice.seconds), reason: s.voice.reason } },
-    speakers: p.multi ? p.profiles.map((profile, i) => ({ speaker: i + 1, mergedInto: s.voiceprints.resolve(i) !== i ? s.voiceprints.resolve(i) + 1 : undefined, calibrated: profile.calibrated, normalDb: r1(profile.ref), pitchHz: profile.pitch && Math.round(profile.pitch) })) : undefined,
     // What speech-to-text committed vs. what reached the overlay, per line (empty "shown" = dropped by Loudtype).
     heardVsShown: latest?.transcript.heard ?? [],
     allFramesDbLast30s: spread(p.frames.map((f) => f.db)), // the quiet end is the real room noise
     speechDbLast30s: spread(p.frames.filter((f) => f.speech).map((f) => f.db)),
-    words: p.history.map((w) => ({ word: w.word, speaker: w.speaker, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
+    words: p.history.map((w) => ({ word: w.word, level: w.level, db: r1(w.db), vsNormal: r1(w.delta), voicedPct: Math.round(w.voiced * 100), pitchHz: w.pitch || null, speech: w.speech, silent: w.silent, ignored: w.background ?? null })),
   };
 }
 // One committed line's audio (pre-gate, from memory) through /transcribe → batch Scribe v2.
-async function refineLine(ring, start, end) {
-  const offset = Math.max(start - 0.25, ring.endT - ring.total / ring.rate); // never before the first sample heard
-  const audio = ring.slice(offset, end + 0.35);
+// It hears up to SOUND_PAD_SEC around the words, for laughter just before or after them,
+// but never audio an earlier line already sent (no tag twice; transcript.js keeps only this line's words).
+const SOUND_PAD_SEC = 1.5;
+async function refineLine(s, start, end) {
+  const ring = s.voiceprints.ring;
+  // Never cut into this line's own words, even if the previous line's padding reached them;
+  // never before the first sample heard.
+  const before = Math.min(start - 0.25, Math.max(start - SOUND_PAD_SEC, s.refinedUntil ?? -Infinity));
+  const offset = Math.max(before, ring.endT - ring.total / ring.rate);
+  end = Math.min(end + SOUND_PAD_SEC, ring.endT);
+  s.refinedUntil = end;
+  const audio = ring.slice(offset, end);
   if (!audio || audio.length < 16000 * 0.3) return null;
   const r = await fetch('/transcribe', { method: 'POST', body: audio.slice().buffer });
   if (!r.ok) throw new Error(`Second-pass transcript failed: ${(await r.json().catch(() => ({}))).error || r.status}`);
   return { ...(await r.json()), offset };
 }
 
-// The last 60 s the app heard (16 kHz mono WAV), saved only on click: real audio to tune emotion and speakers on.
+// The last 60 s the app heard (16 kHz mono WAV), saved only on click: real audio to tune emotion on.
 ui.dvAudio.onclick = () => {
   const s = session ?? latest;
   const ring = s?.voiceprints.ring;
@@ -458,7 +461,7 @@ ui.promptHide.onclick = () => showPrompt(-1);
 ui.newJudge.onclick = () => {
   if (session) {
     session.prosody.recalibrate();
-    session.voiceprints.resetSpeakers();
+    session.sync.clear();
     session.transcript.resetCaption();
     session.voice = null; // the voiceprint is relearned from the new calibration
     showVoice(session);
@@ -467,6 +470,26 @@ ui.newJudge.onclick = () => {
   relay.send({ type: 'clear' }, { record: false });
   showPrompt(0);
 };
+
+// ---------- sync mode ----------
+function streamDelay() { return Math.max(0, Math.min(30, Number(ui.delay.value) || 0)); }
+ui.delay.value = String(store.get('loudtype.delay') ?? config.STREAM_DELAY_SECS ?? 0);
+ui.delay.onchange = () => {
+  ui.delay.value = String(streamDelay());
+  store.set('loudtype.delay', ui.delay.value);
+  if (latest?.sync) latest.sync.delay = streamDelay();
+  showDelayInfo(latest);
+};
+/** How soon captions are finished vs. the delay set: tells the streamer the delay to use. */
+function showDelayInfo(s) {
+  const r = s?.sync?.readiness();
+  const d = streamDelay();
+  if (!r) { ui.delayInfo.textContent = d ? `Sync on: captions show ${d} s after speech.` : ''; return; }
+  const ready = `Captions are finished ~${r.typical.toFixed(1)} s after a line starts (slow lines ${r.slow.toFixed(1)} s)`;
+  ui.delayInfo.textContent = !d ? `${ready}. For sync, set a stream delay of at least ${r.suggest} s.`
+    : d >= r.slow ? `${ready}. Delay ${d} s: every word lands on time ✓`
+    : `${ready}. Delay ${d} s is short: some words will be late (use ${r.suggest} s or more).`;
+}
 
 // ---------- controls ----------
 ui.strictness.onchange = () => { if (session) { session.voiceprints.strictness = ui.strictness.value; showVoice(session); } };
@@ -481,10 +504,6 @@ ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { rec
 
 // Look: subtitle font and reduce motion. Remembered in this browser (a convenience only);
 // sent to overlays when they change, when the relay connects, and when an overlay (re)loads.
-const store = {
-  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
-};
 for (const [id, name] of Object.entries(FONTS)) ui.font.add(new Option(name, id));
 function sendLook() {
   relay.send({ type: 'font', font: /** @type {import('./caption.js').FontId} */ (ui.font.value) }, { record: false });

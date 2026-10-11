@@ -107,6 +107,27 @@ export const FX = {
   neutral: { about: 'plain fade-in, no motion', duration: 0, stagger: 0, keyframes: [] },
 };
 
+// Sound tags ([laughs]) get their own small motion instead of the line's.
+/** @type {[RegExp, Fx][]} */
+export const SOUND_FX = [
+  [/^(laugh|laughs|laughing|laughter|giggles?|giggling|chuckles?|chuckling)$/, {
+    about: 'laughter: two quick small hops', duration: 560, stagger: 0, easing: 'ease-in-out',
+    keyframes: [
+      { transform: 'translateY(0)' }, { transform: 'translateY(-0.18em)', offset: 0.22 },
+      { transform: 'translateY(0)', offset: 0.45 }, { transform: 'translateY(-0.12em)', offset: 0.7 },
+      { transform: 'translateY(0)' },
+    ],
+  }],
+];
+
+/** Plays a sound tag's motion ("laughs"); false if that sound has none (it then takes the line's). */
+export function playSoundFx(el, name, delay = 0) {
+  const fx = SOUND_FX.find(([re]) => re.test(name))?.[1];
+  if (!fx || typeof el.animate !== 'function') return false;
+  el.animate(/** @type {Keyframe[]} */ (fx.keyframes), { duration: fx.duration, easing: fx.easing, delay, fill: 'backwards' }).id = 'fx';
+  return true;
+}
+
 /**
  * Plays `emotion`'s animation on one word (or the line's icon).
  * @param {HTMLElement} el
