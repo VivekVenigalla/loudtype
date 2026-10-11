@@ -15,7 +15,20 @@ const rows = [];
 for (const m of manifest) {
   const wav = pcm16ToWav(readFileSync(DIR + m.file));
   try {
-    const r = await geminiEmotion({ key: CONFIG.GEMINI_API_KEY, model, wav, text: m.text, thinking: thinking === 'none' ? null : thinking, timeoutMs: 15000 });
+    let r;
+    for (let tries = 0; ; tries++) {
+      try {
+        r = await geminiEmotion({ key: CONFIG.GEMINI_API_KEY, model, wav, text: m.text, thinking: thinking === 'none' ? null : thinking, timeoutMs: 15000 });
+        break;
+      } catch (err) {
+        // Free tier: a few requests per minute. Wait as told and retry (latency counts only the answered call).
+        const wait = err.message.match(/retry in ([\d.]+)s/)?.[1];
+        if (!/Gemini 429/.test(err.message) || tries >= 5) throw err;
+        const limit = err.message.match(/limit: (\d+)/)?.[1];
+        console.log(`     rate limited (free tier, ${limit ?? '?'} per minute); waiting ${Math.ceil(Number(wait ?? 20))} s`);
+        await new Promise((ok) => setTimeout(ok, (Number(wait ?? 20) + 1) * 1000));
+      }
+    }
     rows.push({ ...m, got: r.emotion, ms: r.ms });
     console.log(`${r.emotion === m.emotion ? 'ok  ' : 'MISS'} ${m.group.padEnd(7)} ${m.emotion.padEnd(7)} → ${r.emotion.padEnd(9)} ${String(r.confidence).padEnd(5)} ${r.ms} ms "${m.text}"`);
   } catch (err) {
