@@ -45,7 +45,8 @@ export async function geminiEmotion({ key, model, wav, text, context = [], think
     temperature: 0,
     responseMimeType: 'application/json',
     responseSchema: SCHEMA,
-    ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}),
+    // Gemini 3.x takes a thinking level; 2.5 models a token budget ('budget0' = no thinking).
+    ...(thinking === 'budget0' ? { thinkingConfig: { thinkingBudget: 0 } } : thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}),
   };
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
