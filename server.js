@@ -25,6 +25,7 @@ const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm',
   '.onnx': 'application/octet-stream', '.woff2': 'font/woff2',
+  '.wav': 'audio/wav', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8',
 };
 
 // The browser only ever sees a short-lived single-use token, never the API key.

@@ -1,8 +1,7 @@
 // Control panel: listens, analyzes, and tells the overlay what to draw.
 import { startAudio } from './audio.js';
 import { openScribe } from './stt.js';
-import { THRESHOLDS } from './prosody.js';
-import { Prosody } from './prosody.js';
+import { Prosody, THRESHOLDS } from './prosody.js';
 import { Transcript } from './transcript.js';
 import { classify, warmUp, voiceScores } from './emotion.js';
 import { embed, loadVoiceModel } from './voiceprint.js';
@@ -125,13 +124,16 @@ async function start() {
     console.error(err);
     setStatus('Emotion model failed to load; lines stay white', 'warn');
   });
-  loadVoiceModel().then(() => {
-    voiceReady = true;
-    if (session === s) s.voiceprints.refresh(s.prosody);
-  }).catch((err) => {
-    console.error(err);
-    setStatus('Voiceprint model failed to load (run npm run setup); filtering by loudness and pitch only', 'warn');
-  });
+  // Voiceprints only filter in "Main speaker only" mode: don't load (or warn about) the model otherwise.
+  if (s.prosody.focus) {
+    loadVoiceModel().then(() => {
+      voiceReady = true;
+      if (session === s) { s.voiceprints.refresh(s.prosody); showVoice(s); }
+    }).catch((err) => {
+      console.error(err);
+      setStatus('Voiceprint model failed to load (run npm run setup); filtering by loudness and pitch only', 'warn');
+    });
+  }
 
   try {
     await openStt(s);
@@ -230,7 +232,6 @@ function stop() {
 
 function sendCalib(s) {
   if (session !== s) return;
-  const p = s.prosody;
   const progress = s.prosody.calibration;
   relay.send({ type: 'calib', progress });
   ui.calib.textContent = progress >= 1 ? 'Calibrated to your voice' : `Learning your voice… ${Math.round(progress * 100)}%`;
@@ -316,8 +317,8 @@ const thresholdsOf = (s, v) => {
 // Voiceprint status: how many voices are enrolled and the last line's verdict.
 function showVoice(s) {
   const p = s.prosody;
-  if (!voiceReady) { ui.dvVoice.textContent = 'Voiceprint: loading model…'; return; }
   if (!p.focus) { ui.dvVoice.textContent = 'Voiceprint: off (everyone is captioned; tick "Main speaker only" to filter)'; return; }
+  if (!voiceReady) { ui.dvVoice.textContent = 'Voiceprint: loading model…'; return; }
   const n = s.voiceprints.count(p);
   const v = s.voice;
   ui.dvVoice.textContent = `Voiceprint: ${n ? 'enrolled' : 'not enrolled yet'}` + (!v ? '' : v.reason

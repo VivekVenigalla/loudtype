@@ -548,3 +548,15 @@ test('refine: words of a neighbouring line are dropped; a sound tag is captioned
   await tr.committedTimed(timed('next one', 3));           // realtime words at 13.0-13.7
   assert.deepEqual(lastLine().words.map((w) => w.word), ['next', 'one']);
 });
+
+test('lines finished out of order (a slower second pass) are still exported in spoken order', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  const release = [];
+  tr.refine = () => new Promise((r) => release.push(() => r(null))); // keep the realtime words
+  const first = tr.committedTimed(timed('first line', 1));
+  const second = tr.committedTimed(timed('second line', 3));
+  release[1](); await second; // the later line comes back first
+  release[0](); await first;
+  assert.deepEqual(tr.lines.map((l) => l.text), ['first line', 'second line']);
+});

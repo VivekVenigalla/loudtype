@@ -108,7 +108,7 @@ export class Prosody {
   get enrollSpans() { return [...this.calibWords, ...this.enrollExtra]; }
 
   push(t, db, voicing = 0, pitch = 0) {
-    // Noise floor = 10th percentile of the last ~5 s (speech always has gaps),
+    // Noise floor = 10th percentile of the last ~15 s (speech always has gaps),
     // clamped so digital silence while the mic warms up can't drag it down.
     this.recentDbs.push(db);
     if (this.recentDbs.length > NOISE_WINDOW) this.recentDbs.shift();

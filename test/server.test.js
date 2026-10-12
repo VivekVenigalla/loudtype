@@ -187,3 +187,14 @@ test('/emotion2vec answers 503 when the service is off, and a bad body never cra
   assert.equal(odd.status, 503);
   await assertAlive();
 });
+
+test('test clips in replay/ are served as audio (fake-mic browser test)', { skip }, async () => {
+  const { writeFileSync, rmSync } = await import('node:fs');
+  const file = join(dirname(SERVER), 'replay', '.server-test.wav');
+  writeFileSync(file, Buffer.from('RIFF0000WAVE'));
+  try {
+    const res = await get('/replay/.server-test.wav');
+    assert.equal(res.status, 200);
+    assert.equal(res.headers['content-type'], 'audio/wav');
+  } finally { rmSync(file, { force: true }); }
+});

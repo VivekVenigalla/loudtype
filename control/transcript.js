@@ -323,7 +323,12 @@ export class Transcript {
     if (untimed) untimed.emotion = emotion;
     this.send({ ...base, final: true, provisional: false, emotion, confidence: +confidence.toFixed(2) });
     const line = { line: id, text, emotion, confidence, words };
-    if (words.every((w) => typeof w.start === 'number')) this.lines.push(line);
+    if (words.every((w) => typeof w.start === 'number')) {
+      // Lines can finish out of order (a later line's second pass returns first): keep them in spoken order for export.
+      let i = this.lines.length;
+      while (i > 0 && this.lines[i - 1].words[0].start > words[0].start) i--;
+      this.lines.splice(i, 0, line);
+    }
     this.onFinal(line, info, tone);
   }
 }
