@@ -2,7 +2,7 @@
 // transformers.js, loaded from /models and never from the network, combined
 // with voice energy in emotion-core.js. Caption text never leaves the computer.
 import { transformers } from './ml.js';
-import { decide, fuse, voiceEnergy } from './emotion-core.js';
+import { decide, fuse, voiceEnergy, withSounds } from './emotion-core.js';
 import { toneEnergy } from './tone.js';
 import { EMOTION_MODEL } from './caption.js';
 
@@ -23,15 +23,16 @@ export function warmUp() {
  * @param {number} [minConfidence]
  * @param {{ emotion: string, confident: boolean } | null} [taught]  ToneBook.match(): the speaker's taught mood it sounds like
  * @param {Promise<Record<string, number> | null> | null} [voice]  emotion2vec scores of the line's audio (null: off)
+ * @param {string[]} [sounds]  sound tags Scribe heard in the line ("laughs")
  * @returns {Promise<{emotion:string, confidence:number, energy:number, top:string, reason?:string}>}
  */
-export async function classify(text, levels, tone = null, minConfidence = 0.7, taught = null, voice = null) {
-  if (levels.length < 3 || !text.trim()) return { emotion: 'neutral', confidence: 0, energy: 0.5, top: '' };
+export async function classify(text, levels, tone = null, minConfidence = 0.7, taught = null, voice = null, sounds = []) {
+  if (levels.length < 3 || !text.trim()) return withSounds({ emotion: 'neutral', confidence: 0, energy: 0.5, top: '' }, sounds);
   const model = await warmUp();
   const scores = await model(text, { top_k: null });
   const m = Object.fromEntries(scores.map((x) => [x.label, x.score]));
   // Energy from how the line sounded (pitch, loudness, range vs. the speaker's normal) when known, else its sizes.
-  const r = fuse(decide(m, text, tone ? toneEnergy(tone) : voiceEnergy(levels), minConfidence), await voice?.catch(() => null) ?? null);
+  const r = withSounds(fuse(decide(m, text, tone ? toneEnergy(tone) : voiceEnergy(levels), minConfidence), await voice?.catch(() => null) ?? null), sounds);
   const top = scores.slice(0, 2).map((x) => `${x.label} ${x.score.toFixed(2)}`).join(', ')
     + (r.voice ? ` · voice ${r.voice.label} ${r.voice.confidence.toFixed(2)}` : '');
   // The speaker taught this mood and their voice clearly matches it: the voice wins, even over neutral words.
@@ -45,8 +46,11 @@ export async function classify(text, levels, tone = null, minConfidence = 0.7, t
  * @param {Float32Array | null} audio
  * @returns {Promise<Record<string, number> | null>}
  */
+let voiceDownUntil = 0;
+const VOICE_RETRY_MS = 60000; // the service is optional: when it isn't running, ask again a minute later, not every line
 export async function voiceScores(audio) {
-  if (!audio || audio.length < 16000 * 0.4) return null;
-  const r = await fetch('/emotion2vec', { method: 'POST', body: audio.slice().buffer });
-  return r.ok ? (await r.json()).scores : null;
+  if (!audio || audio.length < 16000 * 0.4 || performance.now() < voiceDownUntil) return null;
+  const r = await fetch('/emotion2vec', { method: 'POST', body: audio.slice().buffer }).catch(() => null);
+  if (!r?.ok) { voiceDownUntil = performance.now() + VOICE_RETRY_MS; return null; }
+  return (await r.json()).scores;
 }

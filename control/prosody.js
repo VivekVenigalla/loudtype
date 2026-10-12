@@ -80,17 +80,12 @@ export class Prosody {
     this.wordPace = [];   // ms per letter
     this.last = null;     // last committed word's measurements (Director's View)
     this.history = [];    // the last REPORT_WORDS of those (mic report)
-    this.suppressCaptions = false;
-    this.requireTimed = false;
-    this.filterWordsIndividually = false;
     /** @type {import('./voiceprint-core.js').Verdict | null} the line being styled, set by transcript.js */
     this.voice = null;
     this.tones = new ToneBook(); // moods this speaker taught on purpose (tone.js)
   }
 
   get calibrated() { return this.ref != null; }
-  /** Several speakers, each line labeled (speakers.js label-everyone mode). */
-  get multi() { return false; }
   get calibration() { return this.calibrated ? 1 : this.calibDbs.length / CALIBRATE_WORDS; }
 
   recalibrate() {
@@ -113,7 +108,7 @@ export class Prosody {
   get enrollSpans() { return [...this.calibWords, ...this.enrollExtra]; }
 
   push(t, db, voicing = 0, pitch = 0) {
-    // Noise floor = 10th percentile of the last ~5 s (speech always has gaps),
+    // Noise floor = 10th percentile of the last ~15 s (speech always has gaps),
     // clamped so digital silence while the mic warms up can't drag it down.
     this.recentDbs.push(db);
     if (this.recentDbs.length > NOISE_WINDOW) this.recentDbs.shift();
@@ -200,11 +195,8 @@ export class Prosody {
     return null;
   }
 
-  /** The moods a speaker taught (single speaker: this one). */
-  toneBookFor(_speaker) { return this.tones; }
-
   /** How a line sounded against this speaker's normal (tone.js), or null before calibration. */
-  toneOf(start, end, words, _speaker) {
+  toneOf(start, end, words) {
     return this.calibrated ? toneFeatures(this, start, end, words) : null;
   }
 
@@ -215,7 +207,7 @@ export class Prosody {
     return Math.min(this.ref - GATE_MAX_BELOW_NORMAL_DB, Math.max(this.noiseDb + GATE_ABOVE_NOISE_DB, this.ref - GATE_BELOW_NORMAL_DB));
   }
 
-  /** The main speaker's normal level used by the gate (Speakers: the quietest enrolled speaker); null until known. */
+  /** The main speaker's normal level used by the gate null until known. */
   gateRef() { return this.ref; }
 
   /** dBFS an unvoiced (whisper-like) frame needs to open the gate; never above gateDb(). */

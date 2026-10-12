@@ -3,8 +3,7 @@
 // the real voiceprint model (onnxruntime-node). Each scene phrase is one
 // committed line, as Scribe would send it. Prints each line's verdict and
 // whether it is captioned. Needs `npm run setup` (the model in models/).
-// Usage: node scripts/eval-voiceprint.mjs [--mac] [--everyone]
-//   --everyone  label-everyone mode: no calibration; prints the speaker each line got
+// Usage: node scripts/eval-voiceprint.mjs [--mac]
 //               (scene voices: main = Samantha, nearby far/near = Daniel, far-same = Tessa)
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +11,6 @@ const ROOT = new URL('..', import.meta.url);
 const imp = (p) => import(new URL(p, ROOT).href);
 const { voicesScene } = await imp('scripts/scenes.mjs');
 const { Prosody } = await imp('control/prosody.js');
-const { Speakers } = await imp('control/speakers.js');
 const { frameFeatures } = await imp('control/features.js');
 const { AudioRing, Voiceprints, VOICE } = await imp('control/voiceprint-core.js');
 const { VOICE_MODEL } = await imp('control/caption.js');
@@ -31,9 +29,8 @@ async function embed(audio) {
 }
 
 const mac = process.argv.includes('--mac');
-const everyone = process.argv.includes('--everyone');
 const scene = await voicesScene({ mac });
-const p = everyone ? new Speakers() : new Prosody();
+const p = new Prosody();
 const vp = new Voiceprints({ embed, ring: new AudioRing() });
 
 // Calibration needs 6 words: the calibration phrase is styled as 6 pieces.
@@ -66,26 +63,10 @@ for (let i = 0; i + N <= scene.audio.length; i += N) {
     const styled = words.map(([a, b]) => p.styleWord(span.text, a, b));
     p.voice = null;
     await vp.refresh(p);
-    results.push({ span, voice, speaker: styled[0].speaker, captioned: styled.some((w) => !w.background), levels: [...new Set(styled.map((w) => w.level))].join('/') });
+    results.push({ span, voice, captioned: styled.some((w) => !w.background), levels: [...new Set(styled.map((w) => w.level))].join('/') });
   }
 }
 
-if (everyone) {
-  const voiceOf = (s) => ({ main: 'Samantha', nearby: s.kind === 'far-same' ? 'Tessa' : 'Daniel' })[s.who];
-  const label = new Map(); // voice -> the label it got first
-  let right = 0, scored = 0;
-  for (const { span, voice, speaker } of results) {
-    const v = voiceOf(span);
-    const judged = span.kind !== 'whisper'; // a whisper has no voice: it stays with the last speaker
-    if (judged && !label.has(v)) label.set(v, speaker);
-    const ok = !judged || label.get(v) === speaker;
-    const unique = [...label.entries()].every(([w, l]) => w === v || l !== speaker) || !judged;
-    if (judged) { scored++; if (ok && unique) right++; }
-    console.log(`${!judged ? '   ' : ok && unique ? 'ok ' : 'BAD'} S${speaker} ${v.padEnd(9)} ${`${span.who}/${span.kind}`.padEnd(16)} ${(voice?.reason ?? `similarity ${voice?.score.toFixed(2)}${voice?.isNew ? ' (new voice)' : ''}`).padEnd(42)} "${span.text}"`);
-  }
-  console.log(`${right}/${scored} voiced lines labeled consistently · ${new Set(results.map((r) => r.speaker)).size} labels for 3 voices · embedding ${Math.round(times.reduce((a, b) => a + b, 0) / times.length)} ms avg`);
-  process.exit(0);
-}
 console.log(`scene: ${mac ? 'MacBook mic' : 'close mic'} · thresholds: match ≥ ${VOICE.MATCH} (short ${VOICE.MATCH_SHORT}), other < ${VOICE.OTHER} (short ${VOICE.OTHER_SHORT})`);
 let right = 0;
 for (const { span, voice, captioned, levels } of results) {

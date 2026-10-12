@@ -25,6 +25,7 @@ const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm',
   '.onnx': 'application/octet-stream', '.woff2': 'font/woff2',
+  '.wav': 'audio/wav', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8',
 };
 
 // The browser only ever sees a short-lived single-use token, never the API key.
@@ -80,7 +81,7 @@ async function transcribe(req, res) {
       const form = new FormData();
       form.set('model_id', CONFIG.STT_BATCH_MODEL_ID || 'scribe_v2');
       form.set('timestamps_granularity', 'word');
-      form.set('tag_audio_events', 'false');
+      form.set('tag_audio_events', 'true'); // [laughs], [sighs], [applause]...: shown as caption sound tags
       form.set('file', new Blob([wav], { type: 'audio/wav' }), 'line.wav');
       return fetch(`https://api.elevenlabs.io/v1/speech-to-text${batchLogging ? '' : '?enable_logging=false'}`, {
         method: 'POST', headers: { 'xi-api-key': CONFIG.ELEVENLABS_API_KEY }, body: form,
@@ -92,7 +93,8 @@ async function transcribe(req, res) {
     if (!r.ok && !batchLogging && /logging|retention|ZRM/i.test(body)) { batchLogging = true; r = await ask(); body = await r.text(); }
     if (!r.ok) throw new Error(`ElevenLabs ${r.status}: ${body.slice(0, 300)}`);
     const d = JSON.parse(body);
-    const words = (d.words || []).filter((w) => w.type === 'word').map(({ text, start, end }) => ({ text, start, end }));
+    const words = (d.words || []).filter((w) => w.type === 'word' || w.type === 'audio_event')
+      .map(({ type, text, start, end }) => ({ text, start, end, ...(type === 'audio_event' ? { event: true } : {}) }));
     send(res, 200, JSON.stringify({ text: d.text || '', words }), 'application/json');
   } catch (err) {
     send(res, 502, JSON.stringify({ error: err.message }), 'application/json');

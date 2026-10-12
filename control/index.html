@@ -41,17 +41,19 @@
     <span id="status">Idle</span>
     <div class="meter"><div id="meter-fill"></div></div>
     <div id="calib"></div>
-    <div id="speaker-list" aria-live="polite"></div>
     <div id="mood">Mood: automatic</div>
-    <label><input type="checkbox" id="focus"> Main speaker only (set before Start): the first sentence calibrates you; everyone else is ignored.
-      Off: everyone is captioned and labeled S1, S2… by voice, no calibration.</label><br>
+    <label><input type="checkbox" id="focus"> Main speaker only (set before Start): the first sentence calibrates you; other voices near the mic are ignored.
+      Off: everyone is captioned.</label><br>
     <label>Voice filter (main speaker only) <select id="strictness">
       <option value="relaxed" selected>Relaxed: drop only voices that clearly aren't calibrated</option>
       <option value="strict">Strict: also drop voices that only roughly match</option>
     </select></label><br>
+    <label>Stream delay <input type="number" id="delay" min="0" max="30" step="0.5" value="0" style="width:5em"> s</label>
+    <small>Set it to your stream's delay (OBS stream delay + platform latency, often 5–10 s): captions then appear exactly when viewers hear the words, already final (no live guesses, no color changes). 0 = live.</small>
+    <div id="delay-info"></div>
     <label>Size sensitivity <input type="range" id="sensitivity" min="0.5" max="1.5" step="0.1" value="1"> <span id="sensitivity-value">1.0</span></label>
     <small>Lower = only big changes in loudness change the size.</small><br>
-    <small>Speaker labels come from on-device voiceprints of each line (about a second of speech). Short lines and whispers stay with the last speaker. Similar voices may share a label; overlapping speech is not supported. Each speaker's first few words show at normal size while their loudness is learned.</small><br>
+    
     <small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 5 surprised · 6 scared · 7 disgusted · 0 automatic</small>
   </section>
 

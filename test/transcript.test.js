@@ -497,3 +497,66 @@ test('refine: a failed second pass keeps the realtime words', async () => {
   console.error = err;
   assert.deepEqual(lastLine().words.map((w) => w.word), ['hello', 'there']);
 });
+
+test('sound tags from the second pass become caption tokens, unstyled, and stay out of the emotion text', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  let seen = null;
+  tr.classify = (text, levels, tone, taught, span, sounds) => { seen = { text, levels, sounds }; return Promise.resolve({ emotion: 'happy', confidence: 0.8 }); };
+  tr.refine = () => Promise.resolve({
+    text: '[laughs] that was so funny', offset: 10.75,
+    words: [{ text: '[laughs]', start: 0.2, end: 1.1, event: true }, { text: 'that', start: 1.2, end: 1.4 },
+      { text: 'was', start: 1.5, end: 1.6 }, { text: 'so', start: 1.7, end: 1.8 }, { text: 'funny', start: 1.9, end: 2.3 }],
+  });
+  await tr.committedTimed(timed('that was so funny'));
+  const line = lastLine();
+  assert.deepEqual(line.words.map((w) => w.word), ['[laughs]', 'that', 'was', 'so', 'funny']);
+  assert.equal(line.words[0].event, 'laughs');
+  assert.equal(line.words[0].level, 'normal');
+  assert.equal(line.words[0].seen, undefined);               // never measured by prosody (not speech)
+  assert.equal(seen.text, 'that was so funny');             // the emotion model reads only the speech
+  assert.equal(seen.levels.length, 4);                       // ...and only the spoken words' loudness
+  assert.deepEqual(seen.sounds, ['laughs']);
+  assert.equal(finals.at(-1).line.text, '[laughs] that was so funny'); // exports keep the tag (.srt for deaf viewers)
+});
+
+test('soundName reads Scribe audio events', async () => {
+  const { soundName } = await import('../control/transcript.js');
+  assert.equal(soundName('[laughs]'), 'laughs');
+  assert.equal(soundName('(Laughter)'), 'laughter');
+  assert.equal(soundName('laughs'), null);
+});
+
+test('refine: words of a neighbouring line are dropped; a sound tag is captioned once', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  // The second pass heard 1.5 s around the line: the end of the previous line, a laugh, the words, a laugh.
+  tr.refine = () => Promise.resolve({
+    text: 'before [laughs] hello there [laughs]', offset: 9.5,
+    words: [{ text: 'before', start: 0, end: 0.3 }, { text: '[laughs]', start: 0.6, end: 1.4, event: true },
+      { text: 'hello', start: 1.5, end: 1.8 }, { text: 'there', start: 1.9, end: 2.2 }, { text: '[laughs]', start: 2.3, end: 3.1, event: true }],
+  });
+  await tr.committedTimed(timed('hello there'));           // realtime words at 11.0-11.7 (AudioContext)
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['[laughs]', 'hello', 'there', '[laughs]']);
+  assert.equal(finals.at(-1).line.text, '[laughs] hello there [laughs]');
+  // The next line's second pass hears the second laugh again: not captioned twice.
+  tr.refine = () => Promise.resolve({
+    text: '[laughs] next one', offset: 11.5,
+    words: [{ text: '[laughs]', start: 0.3, end: 1.1, event: true }, { text: 'next', start: 1.5, end: 1.8 }, { text: 'one', start: 1.9, end: 2.2 }],
+  });
+  clockMs += 10000;
+  await tr.committedTimed(timed('next one', 3));           // realtime words at 13.0-13.7
+  assert.deepEqual(lastLine().words.map((w) => w.word), ['next', 'one']);
+});
+
+test('lines finished out of order (a slower second pass) are still exported in spoken order', async () => {
+  const tr = make();
+  tr.t0 = 0;
+  const release = [];
+  tr.refine = () => new Promise((r) => release.push(() => r(null))); // keep the realtime words
+  const first = tr.committedTimed(timed('first line', 1));
+  const second = tr.committedTimed(timed('second line', 3));
+  release[1](); await second; // the later line comes back first
+  release[0](); await first;
+  assert.deepEqual(tr.lines.map((l) => l.text), ['first line', 'second line']);
+});

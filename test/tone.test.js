@@ -81,16 +81,9 @@ test('a taught mood that sounds like their normal voice is ignored (asks to exag
   assert.equal(book.isUsable('angry'), true);
 });
 
-test('each speaker teaches their own moods; New judge forgets them', async () => {
-  const { Speakers } = await import('../control/speakers.js');
-  const p = new Speakers();
-  p.toneBookFor(1).teach('angry', take('angry'));
-  assert.deepEqual(p.toneBookFor(1).taught, ['angry']);
-  assert.deepEqual(p.toneBookFor(2).taught, []);
-  p.recalibrate();
-  assert.deepEqual(p.toneBookFor(1).taught, []);
+test('New judge forgets the taught moods', () => {
   const solo = new Prosody();
-  solo.toneBookFor().teach('sad', take('sad'));
+  solo.tones.teach('sad', take('sad'));
   solo.recalibrate();
-  assert.deepEqual(solo.toneBookFor().taught, []);
+  assert.deepEqual(solo.tones.taught, []);
 });
