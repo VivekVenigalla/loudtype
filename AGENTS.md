@@ -64,6 +64,13 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
 - **After Effects export animations**: `aeFx()` in export.js turns each emotion's overlay animation into text animators (Position/Scale/Skew/Opacity) driven by an Expression Selector (based on words) whose amount expression has the line's word times baked in, so each word animates from when it appears. Named `Loudtype <emotion> <effect>`; each one is wrapped in try/catch (a failure only skips that animation and alerts once). Tests evaluate every expression like AE would (textIndex, time). **Never run inside After Effects** (not installed here): the matchnames (`ADBE Text Expressible Selector`, `ADBE Text Range Type2` for Based On, `ADBE Text Position 3D`…) are from memory.
 - `STT_REFINE` and `EMOTION2VEC` now default to ON when absent from config.js (the user's config.js lacked both, so the second pass had silently never run).
 
+**Look, stream-safe and exports (2026-10-14).**
+- **Style packs** (`PACKS` in caption.js, control select / `DEFAULT_PACK` / `?pack=`): Studio (white, black outline), Arcade (neon, heavy outline, hard offset shadow), Ink (dark text, white outline, for bright footage). Palette, outline and shadow only (`--outline`, `--shadow`, `--shadow-quiet`, `--shadow-loud`, `--c-*` on `.pack-<id>`); the type grammar is the same in every pack. Provisional tints mix with the pack's `--c-neutral`. The colorblind palette comes after the packs in style.css, so it wins (tested).
+- **Caption size and position** (`SIZES`, `POSITIONS`; control selects, `CAPTION_SIZE` / `CAPTION_POSITION`, `?size=s|m|l|xl`, `?position=top`): sets `--base` (44/56/72/90 px) and moves the stage to the top (the prompt card then moves to the bottom). Overlay event `{type:'layout', size, position}`. Pack, font, size, position and motion are remembered per browser and re-sent when an overlay says `hello` (a reload of the OBS source used to lose the pack). URL parameters win over the panel.
+- **Stream-safe** (`control/safe.js`, checkbox, `STREAM_SAFE`, remembered per browser): swear words and slurs → `#@%!` keeping punctuation, size, weight, color and timing; applied where captions leave for the overlay (`CaptionSync.out`) and to exports; the emotion model and the control-panel log still see the real words. Whole-word patterns (tested against ~30 look-alikes: class, assist, Dickens, cocktail, Scunthorpe...). Also masks words speech-to-text already starred (`f***`).
+- **Exports**: `.vtt` (WebVTT: STYLE block with loudness and emotion classes, `<c.shout>`, per-word `<hh:mm:ss.mmm>` timings, emotion icon, sound tags in `<i>`, markup escaped) and a plain transcript `.txt` (`[mm:ss] (mood) text`). All exports sort lines by spoken time (lines can finish out of order when a later line's second pass returns first; `transcript.lines` is also kept in order).
+- **Hotkeys**: ← → prompt cards, N New judge (plus 1–7/0 moods).
+
 ## Design rules (from the spec; don't break them)
 
 - One baseline per row. No rotation, shaking or size transitions. The only motion is the ~80 ms fade-in and the optional 108% shout pop. (Exception, by request: roll-up rows jump up one row instantly when the bottom row fills.)
@@ -98,15 +105,14 @@ Known issues:
 - **The user's ElevenLabs plan does not support zero-retention mode** (Scribe warning: enterprise/trial only), so audio is logged by ElevenLabs. Don't claim zero retention in the pitch.
 - Untimed commits (if Scribe never sends timestamps for a line) stay unstyled and aren't exported.
 - After an OBS-side change of the overlay URL host (e.g. a custom hostname), the relay refuses it: use `localhost` or `127.0.0.1`.
-- `STREAM_SAFE` exists in config but isn't implemented (defaults to `false`, commented as such).
 
 ## Next steps (in priority order)
 
 1. Test voiceprints with two real people on the MacBook mic (Director's View shows each line's score); tune `VOICE` in `voiceprint-core.js` if the speaker's own lines score under 0.6.
 1b. Test with the real mic at venue-like noise levels; tune `THRESHOLDS`, `UNVOICED_SHARE` and `CALIBRATE_WORDS` in `prosody.js` using Director's View readings. Re-run both eval scripts after any change.
 2. Run the After Effects export in AE once; fix anything that breaks (ExtendScript is ES3, layer in/out ordering, markers on the Highlights null, and the new emotion text animators: matchnames and Expression Selector Based On).
-3. Stream-safe mode: replace swear words with a symbol burst (#@%!) at the same size, weight and color.
-5. Arcade and Ink style packs (font, palette and outline only; the type grammar never changes) and add a `DEFAULT_PACK` config option.
+3. (Done: stream-safe mode.)
+5. (Done: Arcade and Ink packs, `DEFAULT_PACK`.)
 6. (Done: roll-up rows break by measured width.)
 7. Demo polish: record a real `replay/demo.json` (Stop → Save last session), ideally the Atlanta freestyle clip from the spec, and collect the three customer-discovery quotes (streamer, Deaf/HoH viewer, motion designer).
 8. Visual design pass on the control panel and overlay (barebones so far by request).

@@ -22,16 +22,6 @@
   --c-scared: #b388ff;
   --c-disgusted: #a8b545;
 }
-.colorblind {
-  /* Okabe–Ito, distinguishable for common color-vision deficiencies */
-  --c-happy: #f0e442;
-  --c-calm: #009e73;
-  --c-angry: #e66100;
-  --c-sad: #56b4e9;
-  --c-surprised: #e69f00;
-  --c-scared: #cc79a7;
-  --c-disgusted: #999933;
-}
 
 html, body {
   margin: 0;
@@ -43,12 +33,66 @@ body.debug-bg {
   background: repeating-conic-gradient(#888 0 25%, #ccc 0 50%) 0 0 / 40px 40px;
 }
 
-/* ---- Studio pack: font, palette, outline only ---- */
-.pack-studio {
+/* ---- Style packs: palette, outline and shadow only (the type grammar never changes) ---- */
+body {
   --font: 'Roboto Flex', system-ui, sans-serif;
   --outline: 0.06em;
   --outline-color: rgba(0, 0, 0, 0.9);
+  --shadow: 0 0.04em 0.12em rgba(0, 0, 0, 0.85);
+  --shadow-quiet: 0 0 0.18em rgba(0, 0, 0, 0.9), 0 0.03em 0.08em rgba(0, 0, 0, 0.9);
+  --shadow-loud: 0 0.05em 0 rgba(0, 0, 0, 0.9), 0 0.08em 0.2em rgba(0, 0, 0, 0.8);
 }
+/* Studio: the defaults above. */
+/* Arcade: neon colors, a heavy outline and a hard offset "pixel" shadow. */
+.pack-arcade {
+  --outline: 0.08em;
+  --outline-color: #14002b;
+  --shadow: 0.07em 0.07em 0 #14002b;
+  --shadow-quiet: 0.05em 0.05em 0 #14002b;
+  --shadow-loud: 0.1em 0.1em 0 #14002b, 0.14em 0.14em 0 rgba(255, 43, 214, 0.55);
+  --c-neutral: #f4f1ff;
+  --c-happy: #ffe600;
+  --c-calm: #00ffa3;
+  --c-angry: #ff3860;
+  --c-sad: #3db7ff;
+  --c-surprised: #ff8c1a;
+  --c-scared: #c77dff;
+  --c-disgusted: #b8e000;
+}
+/* Ink: dark text with a white outline, for bright footage (IRL, daylight, white UIs). */
+.pack-ink {
+  --outline: 0.07em;
+  --outline-color: rgba(255, 255, 255, 0.95);
+  --shadow: 0 0 0.14em rgba(255, 255, 255, 0.9);
+  --shadow-quiet: 0 0 0.2em rgba(255, 255, 255, 0.95);
+  --shadow-loud: 0 0.05em 0 rgba(255, 255, 255, 0.95), 0 0 0.22em rgba(255, 255, 255, 0.9);
+  --c-neutral: #111111;
+  --c-happy: #9a6f00;
+  --c-calm: #0a7a3f;
+  --c-angry: #c4141c;
+  --c-sad: #1452b8;
+  --c-surprised: #b8500a;
+  --c-scared: #6b2fbf;
+  --c-disgusted: #5e6812;
+}
+/* Colorblind palette (config) wins over every pack's colors: it comes after them. */
+.colorblind {
+  /* Okabe–Ito, distinguishable for common color-vision deficiencies */
+  --c-happy: #f0e442;
+  --c-calm: #009e73;
+  --c-angry: #e66100;
+  --c-sad: #56b4e9;
+  --c-surprised: #e69f00;
+  --c-scared: #cc79a7;
+  --c-disgusted: #999933;
+}
+
+/* Caption size (the normal word) and position: control panel, or ?size=s|m|l|xl and ?position=top on the overlay URL. */
+body.size-s  { --base: 44px; }
+body.size-l  { --base: 72px; }
+body.size-xl { --base: 90px; }
+body.position-top #stage { top: 6vh; bottom: auto; }
+body.position-top #prompt { top: auto; bottom: 6vh; } /* the prompt card moves out of the captions' way */
 
 /* Subtitle font (control panel select, or ?font= on the overlay URL). Size, weight,
    width and the emotion grammar stay the same in every font. */
@@ -100,13 +144,13 @@ body.font-readable { --font: 'Atkinson Hyperlegible Next', 'Roboto Flex', sans-s
 .w.angry:not(.provisional) { transform: scale(1.06); }
 /* Sad words stay smaller after they sink (same reason: transform, no reflow). */
 .w.sad:not(.provisional) { transform: scale(0.85); }
-.provisional.happy { color: color-mix(in srgb, var(--c-happy) 55%, white); }
-.provisional.calm  { color: color-mix(in srgb, var(--c-calm) 55%, white); }
-.provisional.angry { color: color-mix(in srgb, var(--c-angry) 55%, white); }
-.provisional.sad   { color: color-mix(in srgb, var(--c-sad) 55%, white); }
-.provisional.surprised { color: color-mix(in srgb, var(--c-surprised) 55%, white); }
-.provisional.scared    { color: color-mix(in srgb, var(--c-scared) 55%, white); }
-.provisional.disgusted { color: color-mix(in srgb, var(--c-disgusted) 55%, white); }
+.provisional.happy { color: color-mix(in srgb, var(--c-happy) 55%, var(--c-neutral)); }
+.provisional.calm  { color: color-mix(in srgb, var(--c-calm) 55%, var(--c-neutral)); }
+.provisional.angry { color: color-mix(in srgb, var(--c-angry) 55%, var(--c-neutral)); }
+.provisional.sad   { color: color-mix(in srgb, var(--c-sad) 55%, var(--c-neutral)); }
+.provisional.surprised { color: color-mix(in srgb, var(--c-surprised) 55%, var(--c-neutral)); }
+.provisional.scared    { color: color-mix(in srgb, var(--c-scared) 55%, var(--c-neutral)); }
+.provisional.disgusted { color: color-mix(in srgb, var(--c-disgusted) 55%, var(--c-neutral)); }
 .icon {
   font-size: 0.7em;
   font-variation-settings: 'wght' 700;
@@ -118,7 +162,7 @@ body.font-readable { --font: 'Atkinson Hyperlegible Next', 'Roboto Flex', sans-s
   padding: 0 0.14em;   /* word spacing scales with the word, so shouts don't jam together */
   -webkit-text-stroke: var(--outline) var(--outline-color);
   paint-order: stroke fill;
-  text-shadow: 0 0.04em 0.12em rgba(0, 0, 0, 0.85);
+  text-shadow: var(--shadow);
   transform-origin: 50% 85%;  /* close to the baseline */
 }
 .w {
@@ -142,14 +186,14 @@ body.font-readable { --font: 'Atkinson Hyperlegible Next', 'Roboto Flex', sans-s
    soft dark halo, and open the letter spacing a touch so it stays readable. */
 .w[data-level="whisper"], .w[data-level="soft"] {
   -webkit-text-stroke-width: calc(var(--outline) * 0.55);
-  text-shadow: 0 0 0.18em rgba(0, 0, 0, 0.9), 0 0.03em 0.08em rgba(0, 0, 0, 0.9);
+  text-shadow: var(--shadow-quiet);
 }
 .w[data-level="whisper"] { letter-spacing: 0.03em; }
 
 /* Shout: heavier outline and a hard drop shadow so it hits like a sticker. */
 .w[data-level="loud"], .w[data-level="shout"] {
   -webkit-text-stroke-width: calc(var(--outline) * 1.3);
-  text-shadow: 0 0.05em 0 rgba(0, 0, 0, 0.9), 0 0.08em 0.2em rgba(0, 0, 0, 0.8);
+  text-shadow: var(--shadow-loud);
 }
 .w[data-level="shout"] { letter-spacing: -0.01em; }
 .w.enter { animation: fadein 80ms linear both; }

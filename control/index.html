@@ -54,7 +54,8 @@
     <label>Size sensitivity <input type="range" id="sensitivity" min="0.5" max="1.5" step="0.1" value="1"> <span id="sensitivity-value">1.0</span></label>
     <small>Lower = only big changes in loudness change the size.</small><br>
     
-    <small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 5 surprised · 6 scared · 7 disgusted · 0 automatic</small>
+    <label><input type="checkbox" id="safe"> Stream-safe: swear words show as #@%! (same size and color; on screen and in exports)</label><br>
+    <small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 5 surprised · 6 scared · 7 disgusted · 0 automatic · ← → prompt cards · N new judge</small>
   </section>
 
   <section>
@@ -83,9 +84,10 @@
   </section>
 
   <section>
-    Style pack:
-    <select id="pack"><option value="studio">Studio</option></select>
+    <label>Style pack <select id="pack"></select></label>
     <label>Subtitle font <select id="font"></select></label>
+    <label>Size <select id="size"></select></label>
+    <label>Position <select id="position"></select></label>
     <label><input type="checkbox" id="reduce-motion"> Reduce motion (color and icon only, no emotion animations)</label>
     <a href="/overlay/preview.html" target="_blank">Preview emotion animations</a>
   </section>
@@ -101,6 +103,8 @@
     Export:
     <button id="export-srt">.srt captions</button>
     <button id="export-ae">After Effects script (.jsx)</button>
+    <button id="export-vtt" title="WebVTT for web players and YouTube: word timing, loudness and emotion styles">.vtt captions</button>
+    <button id="export-txt" title="Plain transcript with timestamps, for show notes">Transcript (.txt)</button>
   </section>
 
   <section>
