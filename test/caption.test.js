@@ -56,3 +56,19 @@ test('angry and sad rest at the size their animation ends on (no jump when it fi
     assert.match(/** @type {string} */ (FX[e].keyframes.at(-1).transform), new RegExp(`scale\\(${rest}\\)`), e);
   }
 });
+
+test('every style pack, size and position has its overlay CSS rule', async () => {
+  const { PACKS, SIZES, POSITIONS, EMOTIONS } = await import('../control/caption.js');
+  const css = readFileSync(new URL('../overlay/style.css', import.meta.url), 'utf8');
+  for (const id of Object.keys(PACKS)) {
+    if (id === 'studio') continue; // the defaults
+    const rule = css.match(new RegExp(`\\.pack-${id}\\s*{([^}]*)}`))?.[1];
+    assert.ok(rule, `.pack-${id}`);
+    for (const e of EMOTIONS) assert.match(rule, new RegExp(`--c-${e}:`), `.pack-${id} --c-${e}`);
+  }
+  for (const id of Object.keys(SIZES)) if (id !== 'm') assert.match(css, new RegExp(`body\\.size-${id}\\s*{\\s*--base: ${SIZES[id].px}px`), `size-${id}`);
+  assert.match(css, /:root\s*{[^}]*--base: 56px/); // m = the default
+  for (const id of Object.keys(POSITIONS)) if (id !== 'bottom') assert.match(css, new RegExp(`body\\.position-${id} #stage`), `position-${id}`);
+  // The colorblind palette comes after the packs, so it wins over their colors.
+  assert.ok(css.indexOf('.colorblind {') > css.lastIndexOf('.pack-'));
+});

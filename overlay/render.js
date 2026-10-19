@@ -1,6 +1,6 @@
 // Overlay: draws what the control panel sends. Holds no state worth saving,
 // so OBS can reload it at any time.
-import { ICONS, FONTS } from '../control/caption.js';
+import { ICONS, FONTS, PACKS, SIZES, POSITIONS } from '../control/caption.js';
 import { FX, playFx, playSoundFx } from './fx.js';
 
 const CLEAR_AFTER_MS = 6000; // captions fade after this much silence
@@ -26,13 +26,29 @@ function setReduceMotion(reduce) {
   reduceMotion = look.reduce ?? (!!reduce || systemReduce.matches);
   document.body.classList.toggle('reduce-motion', reduceMotion);
 }
+/** One class of a group on <body> (e.g. pack-ink), chosen from `options`; the URL parameter wins. */
+function setChoice(prefix, param, value, options, fallback) {
+  value = params.get(param) || value;
+  if (!(value in options)) value = fallback;
+  for (const id of Object.keys(options)) document.body.classList.toggle(`${prefix}-${id}`, id === value);
+}
+const setPack = (pack) => setChoice('pack', 'pack', pack, PACKS, 'studio');
+function setLayout(size, position) {
+  setChoice('size', 'size', size, SIZES, 'm');
+  setChoice('position', 'position', position, POSITIONS, 'bottom');
+}
 setFont(look.font);
 setReduceMotion(false);
+setPack(null);
+setLayout(null, null);
 fetch('/config').then((r) => r.json()).then((c) => {
   settings = { ...settings, ...c };
   document.body.classList.toggle('colorblind', !!settings.COLORBLIND_PALETTE);
   setFont(settings.CAPTION_FONT);
   setReduceMotion(settings.REDUCE_MOTION);
+  setPack(settings.DEFAULT_PACK);
+  setLayout(settings.CAPTION_SIZE, settings.CAPTION_POSITION);
+  layoutAll();
 }).catch(() => {});
 
 // Roll-up captions in one lane: words keep appending to the bottom row; when
@@ -212,10 +228,8 @@ function handle(msg) {
       calib.hidden = msg.progress >= 1 || msg.progress < 0;
       calibFill.style.width = `${Math.round(Math.max(0, msg.progress) * 100)}%`;
       break;
-    case 'pack':
-      document.body.className = document.body.className.replace(/pack-\S+/g, '').trim();
-      document.body.classList.add(`pack-${msg.pack}`);
-      break;
+    case 'pack': setPack(msg.pack); break;
+    case 'layout': setLayout(msg.size, msg.position); layoutAll(); break; // a new size has new word widths
     case 'font': setFont(msg.font); layoutAll(); break; // a new font has new word widths
     case 'motion': setReduceMotion(msg.reduce); break;
     case 'clear': clearAll(); break;

@@ -15,7 +15,8 @@
  *   emotion: Emotion, confidence: number, words: CaptionWord[] }} LineEvent
  * @typedef {LineEvent
  *   | { type: 'calib', progress: number }
- *   | { type: 'pack', pack: string }
+ *   | { type: 'pack', pack: PackId }
+ *   | { type: 'layout', size: SizeId, position: PositionId }
  *   | { type: 'font', font: FontId }
  *   | { type: 'motion', reduce: boolean }
  *   | { type: 'prompt', text: string, step: number, of: number }
@@ -54,6 +55,24 @@ export const FONTS = {
   pro: 'Inter (professional)',
   readable: 'Atkinson Hyperlegible (easiest to read)',
 };
+
+// Style packs: palette, outline and shadow only; the type grammar (size, weight,
+// width, color+icon meanings) is the same in every pack. overlay/style.css has a .pack-<id> rule for each.
+/** @typedef {'studio' | 'arcade' | 'ink'} PackId */
+/** @type {Record<PackId, string>} */
+export const PACKS = {
+  studio: 'Studio (white text, black outline)',
+  arcade: 'Arcade (neon, hard pixel shadow)',
+  ink: 'Ink (dark text, for bright video)',
+};
+
+// Caption size (the normal word's size) and where the captions sit. Also ?size= and ?position= on the overlay URL.
+/** @typedef {'s' | 'm' | 'l' | 'xl'} SizeId */
+/** @type {Record<SizeId, { label: string, px: number }>} */
+export const SIZES = { s: { label: 'Small', px: 44 }, m: { label: 'Medium', px: 56 }, l: { label: 'Large', px: 72 }, xl: { label: 'Extra large', px: 90 } };
+/** @typedef {'bottom' | 'top'} PositionId */
+/** @type {Record<PositionId, string>} */
+export const POSITIONS = { bottom: 'Bottom', top: 'Top' };
 
 // GoEmotions (28 labels incl. neutral), run on-device from models/.
 export const EMOTION_MODEL = 'SamLowe/roberta-base-go_emotions-onnx';

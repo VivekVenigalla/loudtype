@@ -16,7 +16,10 @@ export const CONFIG = {
   COLORBLIND_PALETTE: false,
   CAPTION_FONT: 'flex',          // subtitle font: 'flex' (Roboto Flex), 'comic' (Comic Neue), 'pro' (Inter), 'readable' (Atkinson Hyperlegible)
   REDUCE_MOTION: false,          // true: no emotion animations (color + icon only); also ?motion=reduce on the overlay URL
-  STREAM_SAFE: false,            // not implemented yet: swear words are NOT filtered
+  STREAM_SAFE: false,            // true: swear words and slurs show as #@%! (same size/color), on screen and in exports
+  DEFAULT_PACK: 'studio',        // 'studio' (white, black outline), 'arcade' (neon), 'ink' (dark text for bright video)
+  CAPTION_SIZE: 'm',             // 's' 44 px, 'm' 56 px, 'l' 72 px, 'xl' 90 px (normal words); also ?size= on the overlay URL
+  CAPTION_POSITION: 'bottom',    // 'bottom' or 'top'; also ?position= on the overlay URL
   SHOUT_POP: true,
   RELAY_PORT: 7777,
 };

@@ -10,11 +10,13 @@ npm start
 - Control panel: http://localhost:7777/control/ (Chrome, click Start, allow the mic; use a headset mic)
 - Overlay: http://localhost:7777/overlay/ (OBS → Sources → Browser, 1920×1080). Add `?bg` to see it over a checkerboard.
 - Offline demo: "Play demo clip" replays `replay/demo.json` (no network). Record a real one with Stop → "Save last session", then move the file into `replay/`. `node scripts/make-demo.js` regenerates the scripted clip.
-- Export: `.srt` and an After Effects `.jsx` (File → Scripts → Run Script File…).
+- Export: `.srt`, `.vtt` (web players/YouTube, with word timing and loudness/emotion styles), a plain transcript `.txt`, and an After Effects `.jsx` (File → Scripts → Run Script File…).
+- Look: style pack (Studio, Arcade, Ink for bright video), font, size and position in the control panel. For OBS you can also fix them in the overlay URL, e.g. `http://localhost:7777/overlay/?pack=ink&size=l&position=top`.
+- Stream-safe: tick it to show swear words as `#@%!` (same size and color) on stream and in exports.
+- Hotkeys on the control panel: 1–7 force a mood (0 = automatic), ← → step through the prompt cards, N = New judge.
 
 Run `npm run setup` once more to fetch the voiceprint model (the main-speaker filter).
 
-Not built yet: sync mode, stream-safe censoring (`STREAM_SAFE` does nothing), Arcade/Ink packs.
 
 Tests: `npm test` (no network; starts its own server on a free port).
 

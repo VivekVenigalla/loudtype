@@ -8,8 +8,9 @@ import { embed, loadVoiceModel } from './voiceprint.js';
 import { AudioRing, Voiceprints, VOICE, STRICTNESS } from './voiceprint-core.js';
 import { Relay } from './relay.js';
 import { CaptionSync } from './sync.js';
-import { download, toSrt, toAfterEffects } from './export.js';
-import { FONTS } from './caption.js';
+import { download, toSrt, toAfterEffects, toVtt, toText } from './export.js';
+import { FONTS, PACKS, SIZES, POSITIONS } from './caption.js';
+import { maskLine, maskExportLine } from './safe.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -22,6 +23,7 @@ const ui = {
   dvMic: $('dv-mic'), dvRoom: $('dv-room'), dvVoice: $('dv-voice'), dvCopy: $('dv-copy'), dvAudio: $('dv-audio'), focus: $('focus'),
   font: $('font'), reduceMotion: $('reduce-motion'), delay: $('delay'), delayInfo: $('delay-info'),
   strictness: $('strictness'), source: $('source'), sensitivity: $('sensitivity'), sensitivityValue: $('sensitivity-value'),
+  safe: $('safe'), size: $('size'), position: $('position'), vtt: $('export-vtt'), txt: $('export-txt'),
 };
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
@@ -75,7 +77,7 @@ async function start() {
   s.sync = new CaptionSync({
     // A line from an older session can still be classifying after Start; it
     // must not reach the new session's overlay, log or recording.
-    out: (msg) => { if (latest === s) relay.send(msg); },
+    out: (msg) => { if (latest === s) relay.send(ui.safe.checked ? maskLine(msg) : msg); },
     now: () => s.audio?.ctx.currentTime ?? 0,
     origin: () => s.transcript?.origin ?? null,
     lag: () => s.transcript?.partialLag() ?? 0.8,
@@ -279,8 +281,12 @@ function requireLines() {
   setStatus('No timed lines to export yet.', 'warn');
   return false;
 }
-ui.srt.onclick = () => { if (requireLines()) download('loudtype.srt', toSrt(latest.transcript.lines)); };
-ui.ae.onclick = () => { if (requireLines()) download('loudtype.jsx', toAfterEffects(latest.transcript.lines)); };
+// Stream-safe also masks exports (what's on screen is what you export).
+const exportLines = () => (ui.safe.checked ? latest.transcript.lines.map(maskExportLine) : latest.transcript.lines);
+ui.srt.onclick = () => { if (requireLines()) download('loudtype.srt', toSrt(exportLines())); };
+ui.ae.onclick = () => { if (requireLines()) download('loudtype.jsx', toAfterEffects(exportLines())); };
+ui.vtt.onclick = () => { if (requireLines()) download('loudtype.vtt', toVtt(exportLines()), 'text/vtt'); };
+ui.txt.onclick = () => { if (requireLines()) download('loudtype-transcript.txt', toText(exportLines())); };
 
 // ---------- Director's View (control panel only, never on stream) ----------
 const DV_RANGE = 20; // live bar shows normal ± 20 dB
@@ -425,7 +431,12 @@ ui.dvCopy.onclick = async () => {
 const MOOD_KEYS = { 1: 'happy', 2: 'calm', 3: 'angry', 4: 'sad', 5: 'surprised', 6: 'scared', 7: 'disgusted', 0: null };
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return; // Cmd+1 switches tabs, it isn't a mood
-  if (e.target.closest('input, select, textarea') || !(e.key in MOOD_KEYS)) return;
+  if (e.target.closest('input, select, textarea')) return;
+  // Table demo: arrows step through the prompt cards, N starts a new judge.
+  if (e.key === 'ArrowRight') { e.preventDefault(); return showPrompt(promptIdx + 1); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); return showPrompt(promptIdx - 1); }
+  if (e.key === 'n' || e.key === 'N') return ui.newJudge.click();
+  if (!(e.key in MOOD_KEYS)) return;
   forcedMood = MOOD_KEYS[e.key];
   ui.mood.textContent = forcedMood ? `Mood forced: ${forcedMood} (press 0 for automatic)` : 'Mood: automatic';
   session?.transcript.refresh();
@@ -501,23 +512,39 @@ ui.sensitivity.oninput = () => {
 };
 ui.start.onclick = start;
 ui.stop.onclick = stop;
-ui.pack.onchange = () => relay.send({ type: 'pack', pack: ui.pack.value }, { record: false });
 
-// Look: subtitle font and reduce motion. Remembered in this browser (a convenience only);
-// sent to overlays when they change, when the relay connects, and when an overlay (re)loads.
+// Look: style pack, subtitle font, size, position and reduce motion. Remembered in this browser
+// (a convenience only); sent to overlays when they change, when the relay connects, and when an
+// overlay (re)loads (OBS reloads used to lose the pack).
 for (const [id, name] of Object.entries(FONTS)) ui.font.add(new Option(name, id));
+for (const [id, name] of Object.entries(PACKS)) ui.pack.add(new Option(name, id));
+for (const [id, { label, px }] of Object.entries(SIZES)) ui.size.add(new Option(`${label} (${px} px)`, id));
+for (const [id, name] of Object.entries(POSITIONS)) ui.position.add(new Option(name, id));
 function sendLook() {
+  relay.send({ type: 'pack', pack: /** @type {import('./caption.js').PackId} */ (ui.pack.value) }, { record: false });
   relay.send({ type: 'font', font: /** @type {import('./caption.js').FontId} */ (ui.font.value) }, { record: false });
+  relay.send({ type: 'layout', size: /** @type {import('./caption.js').SizeId} */ (ui.size.value),
+    position: /** @type {import('./caption.js').PositionId} */ (ui.position.value) }, { record: false });
   relay.send({ type: 'motion', reduce: ui.reduceMotion.checked }, { record: false });
 }
+/** This browser's choice, else config's, else the first option. */
+const pick = (key, configured, options, fallback) => store.get(key) ?? (configured in options ? configured : fallback);
 function applyLookDefaults() {
-  ui.font.value = store.get('loudtype.font') ?? (config.CAPTION_FONT in FONTS ? config.CAPTION_FONT : 'flex');
+  ui.font.value = pick('loudtype.font', config.CAPTION_FONT, FONTS, 'flex');
+  ui.pack.value = pick('loudtype.pack', config.DEFAULT_PACK, PACKS, 'studio');
+  ui.size.value = pick('loudtype.size', config.CAPTION_SIZE, SIZES, 'm');
+  ui.position.value = pick('loudtype.position', config.CAPTION_POSITION, POSITIONS, 'bottom');
   const saved = store.get('loudtype.reduceMotion');
   ui.reduceMotion.checked = saved != null ? saved === '1' : !!config.REDUCE_MOTION;
+  const safe = store.get('loudtype.safe');
+  ui.safe.checked = safe != null ? safe === '1' : !!config.STREAM_SAFE;
 }
 applyLookDefaults();
-ui.font.onchange = () => { store.set('loudtype.font', ui.font.value); sendLook(); };
+for (const [el, key] of [[ui.font, 'font'], [ui.pack, 'pack'], [ui.size, 'size'], [ui.position, 'position']]) {
+  el.onchange = () => { store.set(`loudtype.${key}`, el.value); sendLook(); };
+}
 ui.reduceMotion.onchange = () => { store.set('loudtype.reduceMotion', ui.reduceMotion.checked ? '1' : '0'); sendLook(); };
+ui.safe.onchange = () => { store.set('loudtype.safe', ui.safe.checked ? '1' : '0'); };
 relay.onOpen = sendLook;
 relay.onMessage = (msg) => { if (msg?.type === 'hello') sendLook(); };
 

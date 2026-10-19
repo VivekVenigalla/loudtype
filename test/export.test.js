@@ -129,3 +129,45 @@ test('after effects: each line embeds its animators with its own word times (ico
   assert.match(src, /ADBE Text Expressible Selector/);
   assert.match(src, /addFx\(layer, line\.fx\)/);
 });
+
+// ---------- WebVTT and plain transcript ----------
+test('vtt: a valid WebVTT file with styles for every level and emotion', async () => {
+  const { toVtt } = await import('../control/export.js');
+  const vtt = toVtt(LINES);
+  assert.match(vtt, /^WEBVTT\n\n/);
+  assert.match(vtt, /^STYLE$/m);
+  assert.match(vtt, /::cue\(\.shout\) \{[^}]*font-weight: 900/);
+  assert.match(vtt, /::cue\(\.happy\) \{ color: #ffd84d; \}/);
+  // STYLE must come before the first cue
+  assert.ok(vtt.indexOf('STYLE') < vtt.indexOf('-->'));
+});
+
+test('vtt: each cue has its times, the emotion icon, word timings and loudness classes', async () => {
+  const { toVtt } = await import('../control/export.js');
+  const cues = toVtt(LINES).split('\n\n').filter((c) => c.includes('-->'));
+  assert.equal(cues.length, 3);
+  assert.equal(cues[0], '1\n00:00:00.500 --> 00:00:01.550\nokay <00:00:00.900>chat');
+  assert.equal(cues[1], '2\n00:00:01.600 --> 00:00:04.100\n<c.happy>★ <c.loud>WE</c> <00:00:02.000><c.shout>WON</c></c>');
+});
+
+test('vtt: text that looks like markup is escaped; sound tags are italic', async () => {
+  const { toVtt } = await import('../control/export.js');
+  const line = { line: 1, text: '', emotion: 'neutral', confidence: 0,
+    words: [w('a<b>&c', 1, 1.2), { ...w('[laughs]', 1.3, 1.6), event: 'laughs' }] };
+  assert.match(toVtt([line]), /\na&lt;b&gt;&amp;c <00:00:01\.300><i>\[laughs\]<\/i>\n$/);
+});
+
+test('transcript: one timestamped line per caption, with its mood', async () => {
+  const { toText } = await import('../control/export.js');
+  assert.equal(toText(LINES), '[00:00] okay chat\n[00:01] (happy) WE WON\n[00:10] (calm) nice\n');
+  const long = [{ ...LINES[2], words: [w('late', 3725, 3726)] }];
+  assert.equal(toText(long), '[1:02:05] (calm) nice\n');
+});
+
+test('exports list lines in spoken order even if handed out of order', async () => {
+  const { toVtt, toText } = await import('../control/export.js');
+  const shuffled = [LINES[2], LINES[0], LINES[1]];
+  assert.equal(toText(shuffled), toText(LINES));
+  assert.equal(toVtt(shuffled), toVtt(LINES));
+  assert.equal(toSrt(shuffled), toSrt(LINES));
+});

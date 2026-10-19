@@ -31,14 +31,60 @@ function span(line) {
   return { start, end };
 }
 
-export function toSrt(lines) {
-  const timed = lines.filter((l) => l.words.length);
+/** Lines with words, in spoken order (whatever order they finished in). */
+const ordered = (lines) => lines.filter((l) => l.words.length).sort((a, b) => span(a).start - span(b).start);
+
+/** Each line's start and when its caption leaves: LINGER after its last word, but before the next line. */
+function cues(lines) {
+  const timed = ordered(lines);
   return timed.map((l, i) => {
     const { start, end } = span(l);
     const next = timed[i + 1] ? span(timed[i + 1]).start : Infinity;
-    const out = Math.min(end + LINGER, Math.max(end, next - 0.05));
-    return `${i + 1}\n${srtTime(start)} --> ${srtTime(out)}\n${l.text}\n`;
-  }).join('\n');
+    return { line: l, start, out: Math.min(end + LINGER, Math.max(end, next - 0.05)) };
+  });
+}
+
+export function toSrt(lines) {
+  return cues(lines).map(({ line, start, out }, i) => `${i + 1}\n${srtTime(start)} --> ${srtTime(out)}\n${line.text}\n`).join('\n');
+}
+
+// WebVTT (web players, YouTube): the same cues, plus each word's time (players
+// that support it reveal the line word by word) and classes for loudness and
+// emotion, styled in the file's STYLE block. Size and weight follow caption.js LEVELS.
+const vttTime = (sec) => srtTime(sec).replace(',', '.');
+const vttEscape = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const VTT_LEVELS = {
+  whisper: 'font-size: 75%; font-weight: 200;',
+  soft: 'font-size: 90%; font-weight: 300;',
+  loud: 'font-size: 125%; font-weight: 700;',
+  shout: 'font-size: 160%; font-weight: 900;',
+};
+
+export function toVtt(lines) {
+  const style = [
+    ...Object.entries(VTT_LEVELS).map(([level, css]) => `::cue(.${level}) { ${css} }`),
+    ...Object.entries(EMOTION_COLORS).filter(([e]) => e !== 'neutral').map(([e, hex]) => `::cue(.${e}) { color: ${hex}; }`),
+  ].join('\n');
+  const body = cues(lines).map(({ line, start, out }, i) => {
+    const words = line.words.map((w, k) => {
+      let t = vttEscape(w.word);
+      if (w.event) t = `<i>${t}</i>`;
+      else if (w.level && w.level !== 'normal') t = `<c.${w.level}>${t}</c>`;
+      return k && w.start > start ? `<${vttTime(w.start)}>${t}` : t;
+    }).join(' ');
+    const tinted = line.emotion && line.emotion !== 'neutral' ? `<c.${line.emotion}>${ICONS[line.emotion]} ${words}</c>` : words;
+    return `${i + 1}\n${vttTime(start)} --> ${vttTime(out)}\n${tinted}`;
+  });
+  return `WEBVTT\n\nSTYLE\n${style}\n\n${body.join('\n\n')}\n`;
+}
+
+/** Plain transcript for show notes: "[01:23] (happy) the line". */
+export function toText(lines) {
+  const stamp = (sec) => {
+    const s = Math.floor(Math.max(0, sec)), p = (n) => String(n).padStart(2, '0');
+    return s >= 3600 ? `${Math.floor(s / 3600)}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}` : `${p(Math.floor(s / 60))}:${p(s % 60)}`;
+  };
+  return ordered(lines).map((l) => `[${stamp(span(l).start)}] ${l.emotion && l.emotion !== 'neutral' ? `(${l.emotion}) ` : ''}${l.text}\n`).join('');
 }
 
 // The overlay's emotion animations (overlay/fx.js) as After Effects text animators.
