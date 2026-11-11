@@ -1,7 +1,7 @@
 // Overlay: draws what the control panel sends. Holds no state worth saving,
 // so OBS can reload it at any time.
 import { ICONS, FONTS, PACKS, SIZES, POSITIONS } from '../control/caption.js';
-import { FX, playFx, playSoundFx } from './fx.js';
+import { FX, REST_SCALE, playFx, playSoundFx } from './fx.js';
 
 const CLEAR_AFTER_MS = 6000; // captions fade after this much silence
 
@@ -159,6 +159,18 @@ function newRow(lane) {
 }
 
 /**
+ * Angry words rest bigger (scale 1.06, a transform, so layout doesn't see it) and a long
+ * shouted one ran into its neighbours. Room for the growth on each side keeps the gaps even.
+ * Smaller words (sad) keep their margins: they'd overlap while their animation starts at full size.
+ */
+function restMargin(span, t) {
+  const grow = t.icon || t.provisional ? 0 : (REST_SCALE[t.emotion] ?? 1) - 1;
+  const side = grow > 0 ? Math.round((span.offsetWidth * grow) / 2 * 10) / 10 : 0;
+  span.style.marginInline = side ? `${side}px` : '';
+  return side;
+}
+
+/**
  * Fill rows left to right from the first visible word; when the words need
  * more rows than the lane has, the top row is dropped (roll-up). Break points
  * only depend on the words before them, so rows never reflow as words arrive.
@@ -182,14 +194,15 @@ function layout(lane, { refill = false } = {}) {
     for (let i = start; i < all.length; i++) {
       const span = spanFor(lane, all[i], fresh);
       rows.at(-1).appendChild(span);
-      width += span.offsetWidth;
+      const side = restMargin(span, all[i]);
+      width += span.offsetWidth + 2 * side;
       if (width > max && rows.at(-1).children.length > 1) {
         span.remove();
         const row = newRow(lane);
         row.appendChild(span);
         rows.push(row);
         starts.push(i);
-        width = span.offsetWidth;
+        width = span.offsetWidth + 2 * side;
       }
     }
     if (rows.length <= rowsMax) break;

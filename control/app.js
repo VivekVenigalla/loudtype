@@ -28,6 +28,7 @@ const ui = {
 
 let config = { EMOTION_MIN_CONFIDENCE: 0.7, STT_ZERO_RETENTION: true, STT_MODEL_ID: 'scribe_v2_realtime' };
 const relay = new Relay();
+$('overlay-url').textContent = `${location.origin}/overlay/`; // the port this server really runs on
 // Per-browser conveniences (font, motion, delay); never required: storage can be blocked.
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -61,6 +62,7 @@ async function start() {
   ui.source.disabled = true;
   setStatus('Starting…');
   stopReplay?.();
+  lastRecording = recorded(); // the previous session, including lines that finished after its Stop
   relay.resetRecording();
   relay.send({ type: 'clear' });
   ui.log.textContent = '';
@@ -224,7 +226,6 @@ function stop() {
     s.stt?.close();
     s.audio?.stop();
   }
-  lastRecording = relay.recording.slice();
   ui.start.disabled = false;
   ui.focus.disabled = false;
   ui.source.disabled = false;
@@ -252,7 +253,12 @@ function logLine(line) {
 }
 
 // ---------- replay ----------
+// While a session runs: the previous session. After Stop: this one, read when asked, so it also
+// has the lines that finish after Stop (second pass, emotion, sync-mode lines waiting for the delay).
+const recorded = () => (session ? lastRecording : relay.recording.slice());
 function play(events) {
+  // A replay during a live session would mix both on stream.
+  if (session) return setStatus('Stop listening first, then replay.', 'warn');
   stopReplay?.();
   relay.send({ type: 'clear' }, { record: false });
   setStatus('Replaying…', 'ok');
@@ -266,12 +272,14 @@ ui.playDemo.onclick = async () => {
   } catch { setStatus('No replay/demo.json found', 'err'); }
 };
 ui.playLast.onclick = () => {
-  if (!lastRecording?.length) return setStatus('Nothing recorded yet. Start, talk, then Stop.', 'warn');
-  play(lastRecording);
+  const events = recorded();
+  if (!events?.length) return setStatus('Nothing recorded yet. Start, talk, then Stop.', 'warn');
+  play(events);
 };
 ui.saveReplay.onclick = () => {
-  if (!lastRecording?.length) return setStatus('Nothing recorded yet. Start, talk, then Stop.', 'warn');
-  download('demo.json', JSON.stringify({ events: lastRecording }), 'application/json');
+  const events = recorded();
+  if (!events?.length) return setStatus('Nothing recorded yet. Start, talk, then Stop.', 'warn');
+  download('demo.json', JSON.stringify({ events }), 'application/json');
   setStatus('Saved. Move demo.json into the replay/ folder to use it offline.', 'ok');
 };
 
@@ -382,6 +390,7 @@ function micReport(s) {
 // It hears up to SOUND_PAD_SEC around the words, for laughter just before or after them,
 // but never audio an earlier line already sent (no tag twice; transcript.js keeps only this line's words).
 const SOUND_PAD_SEC = 1.5;
+const REFINE_TIMEOUT_MS = 8000;
 async function refineLine(s, start, end) {
   const ring = s.voiceprints.ring;
   // Never cut into this line's own words, even if the previous line's padding reached them;
@@ -392,7 +401,8 @@ async function refineLine(s, start, end) {
   s.refinedUntil = end;
   const audio = ring.slice(offset, end);
   if (!audio || audio.length < 16000 * 0.3) return null;
-  const r = await fetch('/transcribe', { method: 'POST', body: audio.slice().buffer });
+  // A hung request must not leave the line provisional forever: past this, the realtime words are kept.
+  const r = await fetch('/transcribe', { method: 'POST', body: audio.slice().buffer, signal: AbortSignal.timeout(REFINE_TIMEOUT_MS) });
   if (!r.ok) throw new Error(`Second-pass transcript failed: ${(await r.json().catch(() => ({}))).error || r.status}`);
   return { ...(await r.json()), offset };
 }

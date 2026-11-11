@@ -48,12 +48,14 @@ test('every emotion has a color, an animation and a CSS color class; every font 
 });
 
 test('angry and sad rest at the size their animation ends on (no jump when it finishes)', async () => {
-  const { FX } = await import('../overlay/fx.js');
+  const { FX, REST_SCALE } = await import('../overlay/fx.js');
   const css = readFileSync(new URL('../overlay/style.css', import.meta.url), 'utf8');
+  assert.deepEqual(Object.keys(REST_SCALE).sort(), ['angry', 'sad']);
   for (const e of ['angry', 'sad']) {
     const rest = css.match(new RegExp(`\\.w\\.${e}:not\\(\\.provisional\\)\\s*{\\s*transform: scale\\(([\\d.]+)\\)`))?.[1];
     assert.ok(rest, `.w.${e} rest size`);
     assert.match(/** @type {string} */ (FX[e].keyframes.at(-1).transform), new RegExp(`scale\\(${rest}\\)`), e);
+    assert.equal(REST_SCALE[e], Number(rest), `REST_SCALE.${e} (the overlay spaces words by it)`);
   }
 });
 

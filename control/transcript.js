@@ -234,7 +234,8 @@ export class Transcript {
       const t0 = this.t0;
       const pending = this.refine(t0 + timedWords[0].start, t0 + timedWords.at(-1).end);
       const better = pending ? await pending.catch((err) => { console.error(err); return null; }) : null;
-      if (generation !== this.generation || this.closed) return;
+      // Stop doesn't cancel it: a line already spoken still reaches the overlay (viewers are behind) and the export.
+      if (generation !== this.generation) return;
       // The second pass hears a little more than the line (laughter often comes just before or
       // after the words): keep the spoken words of THIS line, and sound tags not captioned yet.
       const from = t0 + timedWords[0].start - SPAN_SLACK_SEC, to = t0 + timedWords.at(-1).end + SPAN_SLACK_SEC;

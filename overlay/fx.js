@@ -26,6 +26,9 @@ const breathe = (i) => [
   { transform: 'translateX(0)', filter: 'drop-shadow(0 0 0 currentColor)' },
 ];
 
+/** The size a final line's words rest at after their animation (style.css .w.angry / .w.sad; tested). */
+export const REST_SCALE = { angry: 1.06, sad: 0.85 };
+
 /** @type {Record<string, Fx>} */
 export const FX = {
   angry: {

@@ -5,113 +5,182 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Loudtype Control</title>
   <style>
-    body { font: 15px/1.4 system-ui, sans-serif; margin: 24px; max-width: 900px; background: #fff; color: #111; }
-    h1 { margin: 0 0 4px; }
-    section { margin: 16px 0; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; }
-    button, select { font: inherit; padding: 6px 12px; margin: 2px 4px 2px 0; }
-    #status.ok { color: #0a7a2f; } #status.warn { color: #a66a00; } #status.err { color: #c00; }
-    .meter { height: 10px; background: #eee; border-radius: 5px; overflow: hidden; margin-top: 8px; }
-    #meter-fill { height: 100%; width: 0; background: #333; }
-    #log { font: 13px/1.5 ui-monospace, monospace; max-height: 320px; overflow: auto; }
-    .row.happy { color: #a07800; } .row.calm { color: #0a7a2f; } .row.angry { color: #c00; } .row.sad { color: #1a5fb4; }
-    .row.surprised { color: #b35c00; } .row.scared { color: #6a3fc0; } .row.disgusted { color: #6b7520; }
-    code { background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }
-    #prompt { font-weight: 600; margin-left: 8px; }
-    summary { cursor: pointer; font-weight: 600; }
-    .dv-bar { position: relative; height: 18px; margin: 34px 0 8px; border-radius: 9px;
-      background: linear-gradient(90deg, #cfe3ff 0%, #e8f0ff 25%, #eee 37.5%, #eee 62.5%, #ffe6c7 75%, #ffc9c9 100%); }
-    #dv-live { position: absolute; top: -4px; width: 4px; height: 26px; background: #111; left: 50%; transition: left 60ms linear; }
-    .tick { position: absolute; top: -32px; transform: translateX(-50%); font-size: 11px; text-align: center; color: #555; border-left: 1px solid #999; }
-    .tick.mid { top: 20px; border: 0; }
-    .dv-text { font: 13px/1.6 ui-monospace, monospace; }
+    /* The streamer's backstage panel (never on stream). Dark, like OBS, so it sits next to it. */
+    :root {
+      color-scheme: dark;
+      --bg: #121418; --card: #1b1e24; --line: #2c3038; --field: #23272e;
+      --text: #e8eaee; --dim: #9aa1ad; --accent: #7aa7ff;
+      --ok: #5be38c; --warn: #ffb547; --err: #ff6b6b;
+      /* same as the overlay's Studio colors (overlay/style.css) */
+      --c-happy: #ffd84d; --c-calm: #5be38c; --c-angry: #ff4d4d; --c-sad: #5aa9ff;
+      --c-surprised: #ff9f43; --c-scared: #b388ff; --c-disgusted: #a8b545;
+    }
+    * { box-sizing: border-box; }
+    body { font: 14px/1.45 system-ui, sans-serif; margin: 0; padding: 20px 16px 40px; background: var(--bg); color: var(--text); }
+    main { max-width: 1180px; margin: 0 auto; }
+    a { color: var(--accent); }
+    header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -0.01em; }
+    h1 b { font-weight: 900; }
+    h1 span { font-weight: 300; }
+    .tagline { color: var(--dim); }
+    .url { margin-left: auto; color: var(--dim); }
+    code { font: 13px ui-monospace, monospace; background: var(--field); border: 1px solid var(--line); padding: 2px 6px; border-radius: 5px; color: var(--text); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 14px; align-items: start; }
+    .col { display: grid; gap: 14px; }
+    section, details { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+    h2, summary { margin: 0 0 10px; font-size: 13px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+    summary { margin: 0; cursor: pointer; }
+    details[open] summary { margin-bottom: 10px; }
+    .full { margin-top: 14px; }
+
+    label { display: inline-flex; align-items: center; gap: 6px; }
+    .field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0; }
+    .field > label:first-child { min-width: 7.5em; color: var(--dim); }
+    .check { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; }
+    .check input { margin-top: 3px; }
+    small, .hint { color: var(--dim); font-size: 12.5px; }
+    .hint { display: block; margin: -2px 0 8px; }
+    button, select, input[type=number] { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; }
+    button { cursor: pointer; }
+    button:hover:not(:disabled), select:hover { border-color: var(--accent); }
+    button:disabled { opacity: 0.45; cursor: default; }
+    #start { background: var(--accent); border-color: var(--accent); color: #0b1020; font-weight: 650; padding: 7px 22px; }
+    #stop:not(:disabled) { border-color: var(--err); color: var(--err); }
+    .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+    input[type=range] { accent-color: var(--accent); }
+
+    .live { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    #status { font-weight: 600; } #status.ok { color: var(--ok); } #status.warn { color: var(--warn); } #status.err { color: var(--err); }
+    .meter { height: 8px; background: var(--field); border-radius: 4px; overflow: hidden; margin: 12px 0 8px; }
+    #meter-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--c-calm), var(--c-happy) 70%, var(--c-angry)); transition: width 60ms linear; }
+    #calib:empty { display: none; }
+    .state { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--dim); }
+    #prompt { font-weight: 600; color: var(--text); }
+
+    #log { font: 13px/1.55 ui-monospace, monospace; max-height: 320px; overflow: auto; }
+    #log:empty::before { content: 'Finished lines show here while you talk (newest first).'; color: var(--dim); font: 13px system-ui, sans-serif; }
+    .row { padding: 2px 0; border-bottom: 1px solid #23262c; }
+    .row.happy { color: var(--c-happy); } .row.calm { color: var(--c-calm); } .row.angry { color: var(--c-angry); } .row.sad { color: var(--c-sad); }
+    .row.surprised { color: var(--c-surprised); } .row.scared { color: var(--c-scared); } .row.disgusted { color: var(--c-disgusted); }
+
+    .dv-bar { position: relative; height: 16px; margin: 40px 0 26px; border-radius: 8px;
+      background: linear-gradient(90deg, #2a4a7a 0%, #2c3a52 25%, #30343c 37.5%, #30343c 62.5%, #6b4a22 75%, #7a2c2c 100%); }
+    #dv-live { position: absolute; top: -5px; width: 4px; margin-left: -2px; height: 26px; border-radius: 2px; background: #fff; left: 50%; transition: left 60ms linear; }
+    .tick { position: absolute; top: -34px; transform: translateX(-50%); font-size: 11px; line-height: 1.25; text-align: center; color: var(--dim); }
+    .tick::after { content: ''; position: absolute; left: 50%; top: 28px; height: 8px; border-left: 1px solid var(--dim); }
+    .tick.mid { top: 20px; } .tick.mid::after { display: none; }
+    .dv-text { font: 12.5px/1.65 ui-monospace, monospace; margin-bottom: 10px; }
+    .dv-text div:empty { display: none; }
   </style>
 </head>
 <body>
-  <h1>Loudtype</h1>
-  <div>Live captions that sound like you. Overlay URL for OBS: <code>http://localhost:7777/overlay/</code>
-    (<a href="/overlay/?bg" target="_blank">open with test background</a>)</div>
+<main>
+  <header>
+    <h1><b>Loud</b><span>type</span></h1>
+    <span class="tagline">Live captions that sound like you.</span>
+    <span class="url">Overlay for OBS: <code id="overlay-url">http://localhost:7777/overlay/</code>
+      · <a href="/overlay/?bg" target="_blank">open with test background</a></span>
+  </header>
 
-  <section>
-    <label>Source <select id="source">
-      <option value="mic" selected>Microphone</option>
-      <option value="tab">Tab audio (a Twitch/YouTube stream in Chrome)</option>
-    </select></label>
-    <button id="start">Start</button>
-    <button id="stop" disabled>Stop</button>
-    <span id="status">Idle</span>
-    <div class="meter"><div id="meter-fill"></div></div>
-    <div id="calib"></div>
-    <div id="mood">Mood: automatic</div>
-    <label><input type="checkbox" id="focus"> Main speaker only (set before Start): the first sentence calibrates you; other voices near the mic are ignored.
-      Off: everyone is captioned.</label><br>
-    <label>Voice filter (main speaker only) <select id="strictness">
-      <option value="relaxed" selected>Relaxed: drop only voices that clearly aren't calibrated</option>
-      <option value="strict">Strict: also drop voices that only roughly match</option>
-    </select></label><br>
-    <label>Stream delay <input type="number" id="delay" min="0" max="30" step="0.5" value="0" style="width:5em"> s</label>
-    <small>Set it to your stream's delay (OBS stream delay + platform latency, often 5–10 s): captions then appear exactly when viewers hear the words, already final (no live guesses, no color changes). 0 = live.</small>
-    <div id="delay-info"></div>
-    <label>Size sensitivity <input type="range" id="sensitivity" min="0.5" max="1.5" step="0.1" value="1"> <span id="sensitivity-value">1.0</span></label>
-    <small>Lower = only big changes in loudness change the size.</small><br>
-    
-    <label><input type="checkbox" id="safe"> Stream-safe: swear words show as #@%! (same size and color; on screen and in exports)</label><br>
-    <small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 5 surprised · 6 scared · 7 disgusted · 0 automatic · ← → prompt cards · N new judge</small>
-  </section>
+  <div class="grid">
+    <div class="col">
+      <section>
+        <h2>Listen</h2>
+        <div class="live">
+          <select id="source" aria-label="Source">
+            <option value="mic" selected>Microphone</option>
+            <option value="tab">Tab audio (a Twitch/YouTube stream in Chrome)</option>
+          </select>
+          <button id="start">Start</button>
+          <button id="stop" disabled>Stop</button>
+          <span id="status">Idle</span>
+        </div>
+        <div class="meter"><div id="meter-fill"></div></div>
+        <div class="state"><span id="calib"></span><span id="mood">Mood: automatic</span></div>
+      </section>
 
-  <section>
-    <strong>Table demo</strong>
-    <button id="new-judge">New judge (forget all voices + prompts)</button>
-    <button id="prompt-prev">◀</button><button id="prompt-next">Next prompt ▶</button><button id="prompt-hide">Hide prompt</button>
-    <div>Showing on overlay: <span id="prompt">(hidden)</span></div>
-  </section>
+      <section>
+        <h2>Speakers and timing</h2>
+        <label class="check"><input type="checkbox" id="focus"><span>Main speaker only (set before Start): the first sentence calibrates you; other voices near the mic are ignored. Off: everyone is captioned.</span></label>
+        <div class="field"><label for="strictness">Voice filter</label>
+          <select id="strictness">
+            <option value="relaxed" selected>Relaxed: drop only voices that clearly aren't calibrated</option>
+            <option value="strict">Strict: also drop voices that only roughly match</option>
+          </select></div>
+        <div class="field"><label for="delay">Stream delay</label>
+          <span><input type="number" id="delay" min="0" max="30" step="0.5" value="0" style="width:5.5em"> s</span></div>
+        <small class="hint">Your stream's delay (OBS stream delay + platform latency, often 5–10 s): captions then appear exactly when viewers hear the words, already final. 0 = live.</small>
+        <div id="delay-info" class="hint"></div>
+        <div class="field"><label for="sensitivity">Size sensitivity</label>
+          <input type="range" id="sensitivity" min="0.5" max="1.5" step="0.1" value="1"> <span id="sensitivity-value">1.0</span></div>
+        <small class="hint">Lower = only big changes in loudness change the size.</small>
+        <label class="check"><input type="checkbox" id="safe"><span>Stream-safe: swear words show as #@%! (same size and color; on screen and in exports)</span></label>
+      </section>
+    </div>
 
-  <section>
-    <details id="director">
-      <summary>Director's View: how it decides (never shown on stream)</summary>
-      <div class="dv-bar"><div id="dv-ticks"></div><div id="dv-live"></div></div>
-      <div class="dv-text">
-        <div id="dv-mic"></div>
-        <div id="dv-ref">Start listening to see your levels.</div>
-        <div id="dv-room"></div>
-        <div id="dv-voice"></div>
-        <div id="dv-word"></div>
-        <div id="dv-line"></div>
-      </div>
+    <div class="col">
+      <section>
+        <h2>Look</h2>
+        <div class="field"><label for="pack">Style pack</label><select id="pack"></select></div>
+        <div class="field"><label for="font">Subtitle font</label><select id="font"></select></div>
+        <div class="field"><label for="size">Size</label><select id="size"></select>
+          <label for="position" style="min-width:0;color:var(--dim)">Position</label><select id="position"></select></div>
+        <label class="check"><input type="checkbox" id="reduce-motion"><span>Reduce motion (color and icon only, no emotion animations) · <a href="/overlay/preview.html" target="_blank">preview the animations</a></span></label>
+      </section>
+
+      <section>
+        <h2>Replay and export</h2>
+        <div class="buttons">
+          <button id="play-demo">Play demo clip (offline)</button>
+          <button id="play-last">Replay last session</button>
+          <button id="save-replay">Save last session as demo.json</button>
+        </div>
+        <div class="buttons" style="margin-top:8px">
+          <button id="export-srt">.srt captions</button>
+          <button id="export-vtt" title="WebVTT for web players and YouTube: word timing, loudness and emotion styles">.vtt captions</button>
+          <button id="export-txt" title="Plain transcript with timestamps, for show notes">Transcript (.txt)</button>
+          <button id="export-ae">After Effects script (.jsx)</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Table demo</h2>
+        <div class="buttons">
+          <button id="new-judge">New judge (forget voice + prompts)</button>
+          <button id="prompt-prev" aria-label="Previous prompt">◀</button><button id="prompt-next">Next prompt ▶</button><button id="prompt-hide">Hide prompt</button>
+        </div>
+        <div class="state" style="margin-top:8px">On the overlay: <span id="prompt">(hidden)</span></div>
+      </section>
+    </div>
+  </div>
+
+  <details id="director" class="full">
+    <summary>Director's View: how it decides (never shown on stream)</summary>
+    <div class="dv-bar"><div id="dv-ticks"></div><div id="dv-live"></div></div>
+    <div class="dv-text">
+      <div id="dv-mic"></div>
+      <div id="dv-ref">Start listening to see your levels.</div>
+      <div id="dv-room"></div>
+      <div id="dv-voice"></div>
+      <div id="dv-word"></div>
+      <div id="dv-line"></div>
+    </div>
+    <div class="buttons">
       <button id="dv-audio" title="Saves the last 60 s the app heard as a WAV on this computer, only when clicked. For tuning; share it only if you want to.">Save last 60 s audio</button>
-        <button id="dv-copy">Copy mic report</button>
-      <small>Say a normal sentence, whisper one, shout one, then copy. It holds your last 40 words' measurements and stays on this computer until you paste it.</small>
-    </details>
-  </section>
+      <button id="dv-copy">Copy mic report</button>
+    </div>
+    <small class="hint" style="margin-top:8px">Say a normal sentence, whisper one, shout one, then copy. It holds your last 40 words' measurements and stays on this computer until you paste it.</small>
+  </details>
 
-  <section>
-    <label>Style pack <select id="pack"></select></label>
-    <label>Subtitle font <select id="font"></select></label>
-    <label>Size <select id="size"></select></label>
-    <label>Position <select id="position"></select></label>
-    <label><input type="checkbox" id="reduce-motion"> Reduce motion (color and icon only, no emotion animations)</label>
-    <a href="/overlay/preview.html" target="_blank">Preview emotion animations</a>
-  </section>
-
-  <section>
-    Replay:
-    <button id="play-demo">Play demo clip (offline)</button>
-    <button id="play-last">Replay last session</button>
-    <button id="save-replay">Save last session as demo.json</button>
-  </section>
-
-  <section>
-    Export:
-    <button id="export-srt">.srt captions</button>
-    <button id="export-ae">After Effects script (.jsx)</button>
-    <button id="export-vtt" title="WebVTT for web players and YouTube: word timing, loudness and emotion styles">.vtt captions</button>
-    <button id="export-txt" title="Plain transcript with timestamps, for show notes">Transcript (.txt)</button>
-  </section>
-
-  <section>
-    <strong>Lines</strong> (newest first)
+  <section class="full">
+    <h2>Lines</h2>
     <div id="log"></div>
   </section>
 
+  <p><small>Hotkeys (click this page first): 1 happy · 2 calm · 3 angry · 4 sad · 5 surprised · 6 scared · 7 disgusted · 0 automatic · ← → prompt cards · N new judge</small></p>
+</main>
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -247,6 +247,19 @@ test('a line still being classified when the session closes stays in that sessio
   assert.deepEqual(tr.lines.map((l) => [l.text, l.emotion]), [['last words', 'calm']]);
 });
 
+test('a line still in its second pass when the session closes is finished, not dropped', async () => {
+  const tr = make();
+  tr.t0 = 10;
+  let release;
+  tr.refine = () => new Promise((r) => { release = () => r({ text: 'Last words.', offset: 10, words: [{ text: 'Last', start: 1, end: 1.3 }, { text: 'words.', start: 1.4, end: 1.7 }] }); });
+  const done = tr.committedTimed(timed('last words'));
+  tr.close();
+  release();
+  await done;
+  assert.deepEqual(tr.lines.map((l) => l.text), ['Last words.']);
+  assert.equal(lastLine().final, true);
+});
+
 test('a timestamped commit arriving after the 600 ms wait upgrades that line in place', async () => {
   const tr = make();
   tr.t0 = 0;

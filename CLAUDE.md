@@ -77,6 +77,14 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
 - **Exports**: `.vtt` (WebVTT: STYLE block with loudness and emotion classes, `<c.shout>`, per-word `<hh:mm:ss.mmm>` timings, emotion icon, sound tags in `<i>`, markup escaped) and a plain transcript `.txt` (`[mm:ss] (mood) text`). All exports sort lines by spoken time (lines can finish out of order when a later line's second pass returns first; `transcript.lines` is also kept in order).
 - **Hotkeys**: ← → prompt cards, N New judge (plus 1–7/0 moods).
 
+**Robustness pass (2026-11-10).**
+- A line still in its second pass (or classifying) when Stop is clicked is finished, not dropped: it reaches the overlay (viewers are behind), the log and the export. `transcript.finalize` only gives up on New judge (`generation`).
+- Replay last session / Save read the recording when clicked (`recorded()` in app.js), so they include lines that finish after Stop (second pass, sync-mode lines waiting for the delay). Start snapshots the previous session first.
+- Timeouts: `/transcribe` 8 s in the page (then the realtime words stay), emotion2vec 4 s (then counted as down for a minute); server-side ElevenLabs token 10 s, batch 10 s, emotion2vec proxy 5 s (`TIMEOUT_MS`).
+- Angry words rest at scale 1.06 (a transform, invisible to layout), so a long shouted angry word ran into its neighbours. `restMargin()` in render.js gives final angry words side margins of half their growth (`REST_SCALE` in fx.js, tested against style.css). Sad (0.85) keeps its margins: negative ones would overlap while its animation starts at full size.
+- Replays (demo clip, last session) refuse to start while a session is listening (they mixed on stream).
+- The control panel shows the real overlay URL (`location.origin`), not a hard-coded port.
+
 ## Design rules (from the spec; don't break them)
 
 - One baseline per row. Motion: the ~80 ms fade-in, the optional 108% shout pop, and (by request, 2026-10-10) **one animation per emotion**, played once when a line's emotion is final (`overlay/fx.js`, Web Animations so row re-layouts don't restart them; approved on `/overlay/preview.html`). Words return to the baseline at rest; angry rests at scale 1.06 and sad at 0.85 (transform, no reflow; `style.css` and the last keyframe must match, tested). Approved 2026-10-10: happy wave, angry shake, scared tremble, disgusted lean; revised then: calm breathes (word i slides i × 0.09 em right and back, twice, all words in step), sad shrinks and stays small, surprised pops every word at once (`together`: no stagger, fade-in too). **Reduce motion** (control checkbox, `REDUCE_MOTION`, `?motion=reduce`, or the OS setting) turns off emotion animations and the pop; color, icon and the angry size stay. (Also by request: roll-up rows jump up one row instantly when the bottom row fills.)
@@ -89,7 +97,7 @@ Control panel (Chrome, /control/)            Overlay (/overlay/, OBS Browser Sou
 
 ## Testing
 
-- `npm test` (179 tests, ~4 s, no network, no model; voiceprints use a fake embedding): server security and file serving against a real copy on a free port, path resolution, transcript state machine (fake Scribe events, mocked timers), prosody (synthetic frames), emotion-core (fixed scores), features, export, relay recording, caption sync. Run it after every change. `npm run typecheck` too.
+- `npm test` (193 tests, ~4 s, no network, no model; voiceprints use a fake embedding): server security and file serving against a real copy on a free port, path resolution, transcript state machine (fake Scribe events, mocked timers), prosody (synthetic frames), emotion-core (fixed scores), features, export, relay recording, caption sync. Run it after every change. `npm run typecheck` too.
 - `node scripts/eval-volume.mjs [old-prosody.js]` (ask first: uses the user's ElevenLabs quota): builds a clip with macOS `say` (incl. the `Whisper` voice) where every word's level is known, gets real Scribe timestamps (needs the key, uses network), scores levels. Last result (2026-10-10, shout threshold +8): 46/51 exact, 51/51 within one level. Misses: 4 whispers read as soft (same as before), and "so" in the +7 dB "loud" sentence now reads as shout (the clip's loud segment sits 1 dB under the new line; accepted to catch real AirPods shouts). With +10: 47/51, and 48/51 before the silent-word fix (Scribe tokenizes differently each run and the clip's noise is random, so ±1 is normal). Old z-score method: 44/51.
 - `node scripts/eval-ballroom.mjs [--mac] [--only-gated] [--scribe key=value]` (uses quota): `--mac` is the room as a MacBook mic hears it (`MAC_LEVEL` in scenes.mjs, echo on everyone else).
 - `node scripts/eval-voiceprint.mjs [--mac]`: offline, no quota, real voiceprint model on the real-voices ballroom (main-speaker filter; last: 8/8).
@@ -123,5 +131,5 @@ Known issues:
 5. (Done: Arcade and Ink packs, `DEFAULT_PACK`.)
 6. (Done: roll-up rows break by measured width.)
 7. Demo polish: record a real `replay/demo.json` (Stop → Save last session), ideally the Atlanta freestyle clip from the spec, and collect the three customer-discovery quotes (streamer, Deaf/HoH viewer, motion designer).
-8. Visual design pass on the control panel and overlay (barebones so far by request).
+8. (Control panel restyled 2026-11-10: dark cards, two columns on wide screens, same element ids. The overlay's look is the style packs.)
 9. Housekeeping: rename the folder (git init and ignoring `models/` are done).

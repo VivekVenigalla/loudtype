@@ -28,12 +28,17 @@ const TYPES = {
   '.wav': 'audio/wav', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8',
 };
 
+// Outside calls give up after this long: a hung request answers 502/503 instead of never
+// (the page then keeps the realtime words / the text-only emotion).
+const TIMEOUT_MS = { token: 10000, transcribe: 10000, emotion2vec: 5000 };
+
 // The browser only ever sees a short-lived single-use token, never the API key.
 async function mintToken(res) {
   try {
     const r = await fetch('https://api.elevenlabs.io/v1/single-use-token/realtime_scribe', {
       method: 'POST',
       headers: { 'xi-api-key': CONFIG.ELEVENLABS_API_KEY },
+      signal: AbortSignal.timeout(TIMEOUT_MS.token),
     });
     const body = await r.text();
     if (!r.ok) throw new Error(`ElevenLabs ${r.status}: ${body}`);
@@ -85,6 +90,7 @@ async function transcribe(req, res) {
       form.set('file', new Blob([wav], { type: 'audio/wav' }), 'line.wav');
       return fetch(`https://api.elevenlabs.io/v1/speech-to-text${batchLogging ? '' : '?enable_logging=false'}`, {
         method: 'POST', headers: { 'xi-api-key': CONFIG.ELEVENLABS_API_KEY }, body: form,
+        signal: AbortSignal.timeout(TIMEOUT_MS.transcribe),
       });
     };
     let r = await ask();
@@ -106,7 +112,7 @@ async function transcribe(req, res) {
 async function emotion2vec(req, res) {
   try {
     const audio = await readAudio(req);
-    const r = await fetch(`http://127.0.0.1:${CONFIG.EMOTION2VEC_PORT || 7790}/emotion`, { method: 'POST', body: audio });
+    const r = await fetch(`http://127.0.0.1:${CONFIG.EMOTION2VEC_PORT || 7790}/emotion`, { method: 'POST', body: audio, signal: AbortSignal.timeout(TIMEOUT_MS.emotion2vec) });
     send(res, r.status, await r.text(), 'application/json');
   } catch (err) {
     send(res, 503, JSON.stringify({ error: `emotion2vec service unavailable: ${err.message}` }), 'application/json');

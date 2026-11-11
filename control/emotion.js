@@ -47,10 +47,12 @@ export async function classify(text, levels, tone = null, minConfidence = 0.7, t
  * @returns {Promise<Record<string, number> | null>}
  */
 let voiceDownUntil = 0;
+const VOICE_TIMEOUT_MS = 4000;
 const VOICE_RETRY_MS = 60000; // the service is optional: when it isn't running, ask again a minute later, not every line
 export async function voiceScores(audio) {
   if (!audio || audio.length < 16000 * 0.4 || performance.now() < voiceDownUntil) return null;
-  const r = await fetch('/emotion2vec', { method: 'POST', body: audio.slice().buffer }).catch(() => null);
+  // The line's color waits for this, so a stuck service counts as down.
+  const r = await fetch('/emotion2vec', { method: 'POST', body: audio.slice().buffer, signal: AbortSignal.timeout(VOICE_TIMEOUT_MS) }).catch(() => null);
   if (!r?.ok) { voiceDownUntil = performance.now() + VOICE_RETRY_MS; return null; }
   return (await r.json()).scores;
 }

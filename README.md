@@ -99,10 +99,10 @@ After a session you can export:
 ## The control panel
 
 <p align="center">
-  <img src="docs/media/control-panel.png" alt="The Loudtype control panel: source, start/stop, main-speaker and stream-delay options, table-demo prompt cards, Director's View with the loudness bar, style options, replay and export buttons" width="75%">
+  <img src="docs/media/control-panel.png" alt="The Loudtype control panel: source, start/stop, main-speaker and stream-delay options, table-demo prompt cards, Director's View with the loudness bar, style options, replay and export buttons" width="100%">
 </p>
 
-The control panel is plain on purpose: it's the streamer's backstage view and never appears on stream. It covers the source (mic or tab audio), Start/Stop, main-speaker mode, stream delay, size sensitivity, stream-safe, prompt cards for live demos, Director's View, the look (pack, font, size, position, reduce motion), replay and export.
+The control panel is the streamer's backstage view and never appears on stream. It's dark so it sits comfortably next to OBS, and it covers the source (mic or tab audio), Start/Stop, main-speaker mode, stream delay, size sensitivity, stream-safe, prompt cards for live demos, Director's View, the look (pack, font, size, position, reduce motion), replay and export.
 
 ---
 
@@ -198,7 +198,7 @@ replay/demo.json     Offline demo clip
 ## Testing
 
 ```bash
-npm test             # 192 tests, a few seconds, no network: server security, transcript state machine, prosody, emotion, exports, sync...
+npm test             # 193 tests, a few seconds, no network: server security, transcript state machine, prosody, emotion, exports, sync...
 npm run typecheck    # tsc over the JSDoc-typed modules
 ```
 
